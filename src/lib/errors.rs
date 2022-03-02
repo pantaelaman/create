@@ -1,6 +1,6 @@
 pub struct CompilerError {
-    code: usize,
-    message: String,
+    pub code: usize,
+    pub message: String,
 }
 
 impl std::fmt::Display for CompilerError {

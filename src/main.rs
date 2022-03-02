@@ -15,14 +15,19 @@ struct Args {
     debug: bool,
 }
 
-fn main() {
+fn main() -> Result<(), CompilerError> {
     let args = Args::parse();
     println!("{:?}", args);
 
-    match read_file(args.filepath.as_str()) {
-        Err(e) => if args.debug {println!("{:?}", e)} else {println!("{}", e)},
+    let tokens = match read_file(args.filepath.as_str()) {
+        Err(e) => {
+            if args.debug {println!("{:?}", e)} else {println!("{}", e)}
+            return Err(CompilerError { code: 2, message: "Could not read file properly.".to_string() });
+        },
         Ok(d) => tokenize(d.as_str()),
-    }
+    };
+
+    return Ok(());
 }
 
 fn read_file(file: &str) -> Result<String,CompilerError> {

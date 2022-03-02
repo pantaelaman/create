@@ -1,12 +1,12 @@
 use crate::lib::errors;
 
-enum Token {
+pub enum Token {
     CMD(Command),
     NUM(f32),
     SPC(Special),
 }
 
-enum Command {
+pub enum Command {
     ADD,
     SUB,
     MUL,
@@ -14,7 +14,7 @@ enum Command {
     MOD,
 }
 
-enum Special {
+pub enum Special {
     BUF(),
     IBF(usize),
 }
@@ -29,15 +29,15 @@ pub fn tokenize(data: &str) -> Result<Vec<Token>, errors::CompilerError> {
             use Command::*;
             use Special::*;
             match raw_token {
-                "-" => tokens.push(CMD(SUB)),
-                "+" => tokens.push(CMD(ADD)),
-                "*" => tokens.push(CMD(MUL)),
-                "/" => tokens.push(CMD(DIV)),
-                "%" => tokens.push(CMD(MOD)),
-                "~" => tokens.push(SPC(BUF())),
+                &"-" => tokens.push(CMD(SUB)),
+                &"+" => tokens.push(CMD(ADD)),
+                &"*" => tokens.push(CMD(MUL)),
+                &"/" => tokens.push(CMD(DIV)),
+                &"%" => tokens.push(CMD(MOD)),
+                &"~" => tokens.push(SPC(BUF())),
                 _ => match raw_token.parse::<f32>() {
                     Ok(v) => tokens.push(NUM(v)),
-                    Err(e) => {
+                    Err(_) => {
                         if raw_token.chars().nth(0).expect("Something unexpected happened.") == '~' {
                             match raw_token[1..].parse::<usize>() {
                                 Ok(v) => tokens.push(SPC(IBF(v))),
