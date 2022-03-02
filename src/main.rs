@@ -4,6 +4,7 @@ use clap::Parser;
 
 mod lib;
 use crate::lib::errors::*;
+use crate::lib::tokenizer::*;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -20,11 +21,11 @@ fn main() {
 
     match read_file(args.filepath.as_str()) {
         Err(e) => if args.debug {println!("{:?}", e)} else {println!("{}", e)},
-        Ok(m) => println!("{}", m),
+        Ok(d) => tokenize(d.as_str()),
     }
 }
 
-fn read_file(file: &str) -> Result<&str,CompilerError> {
+fn read_file(file: &str) -> Result<String,CompilerError> {
     let file = File::open(file)?;
     let reader = BufReader::new(file);
     let lines = reader.lines().map(|el| {el.expect("There was an unexpected issue.")}).fold(String::from(""), |mut acc,el| {
@@ -32,6 +33,5 @@ fn read_file(file: &str) -> Result<&str,CompilerError> {
         acc.push_str(el.as_str());
         acc
     });
-    println!("{}", lines);
-    return Ok("passed");
+    return Ok(lines);
 }

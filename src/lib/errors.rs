@@ -8,6 +8,7 @@ impl std::fmt::Display for CompilerError {
         let err_msg = match self.code {
             0 => "Huh, that's a toughie. You've got an error with no error!",
             1 => "There was an internal compiler error; run with -d to see a more detailed report.",
+            2 => "There was improper formatting in the source code.",
             _ => "Huh, we weren't able to diagnose the issue, but there was an error somewhere in here.",
         };
         write!(f, "{}\n", err_msg)
