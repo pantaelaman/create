@@ -50,7 +50,15 @@ pub fn interpret_program(data: Vec<Token>) -> CreateResult {
                     MUL => Box::new(BinaryOp::new(Box::new(|l,r| {l*r}))),
                     DIV => Box::new(BinaryOp::new(Box::new(|l,r| {l/r}))),
                     MOD => Box::new(BinaryOp::new(Box::new(|l,r| {l%r}))),
-                    POW => Box::new(BinaryOp::new(Box::new(|l,r| {l.powf(r)})))
+                    POW => Box::new(BinaryOp::new(Box::new(|l,r| {l.powf(r)}))),
+                    SIN => Box::new(UnaryOp::new(Box::new(|v| {v.sin()}))),
+                    COS => Box::new(UnaryOp::new(Box::new(|v| {v.cos()}))),
+                    TAN => Box::new(UnaryOp::new(Box::new(|v| {v.tan()}))),
+                    ASN => Box::new(UnaryOp::new(Box::new(|v| {v.asin()}))),
+                    ACS => Box::new(UnaryOp::new(Box::new(|v| {v.acos()}))),
+                    ATN => Box::new(UnaryOp::new(Box::new(|v| {v.atan()}))),
+                    SQT => Box::new(UnaryOp::new(Box::new(|v| {v.sqrt()}))),
+                    CBT => Box::new(UnaryOp::new(Box::new(|v| {v.cbrt()}))),
                 })
             },
             NUM(num) => {

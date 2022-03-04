@@ -15,6 +15,14 @@ pub enum Command {
     DIV,
     MOD,
     POW,
+    SIN,
+    COS,
+    TAN,
+    ASN,
+    ACS,
+    ATN,
+    SQT,
+    CBT,
 }
 
 #[derive(Debug, Clone)]
@@ -32,26 +40,36 @@ pub fn tokenize(data: &str) -> Result<Vec<Token>, errors::CreateError> {
             use Token::*;
             use Command::*;
             use Special::*;
-            match raw_token {
-                &"-" => tokens.push(CMD(SUB)),
-                &"+" => tokens.push(CMD(ADD)),
-                &"*" => tokens.push(CMD(MUL)),
-                &"/" => tokens.push(CMD(DIV)),
-                &"%" => tokens.push(CMD(MOD)),
-                &"^" => tokens.push(CMD(POW)),
-                &"~" => tokens.push(SPC(BUF())),
+            tokens.push(match raw_token {
+                &"-" => CMD(SUB),
+                &"+" => CMD(ADD),
+                &"*" => CMD(MUL),
+                &"/" => CMD(DIV),
+                &"%" => CMD(MOD),
+                &"^" => CMD(POW),
+                &"sin" => CMD(SIN),
+                &"cos" => CMD(COS),
+                &"tan" => CMD(TAN),
+                &"asin" => CMD(ASN),
+                &"acos" => CMD(ACS),
+                &"atan" => CMD(ATN),
+                &"sqrt" => CMD(SQT),
+                &"cbrt" => CMD(CBT),
+                &"~" => SPC(BUF()),
                 _ => match raw_token.parse::<f32>() {
-                    Ok(v) => tokens.push(NUM(v)),
+                    Ok(v) => NUM(v),
                     Err(_) => { // not a valid number
                         if raw_token.chars().nth(0).unwrap() == '~' {
                             match raw_token[1..].parse::<usize>() {
-                                Ok(v) => tokens.push(SPC(IBF(v))),
-                                Err(_) => return Err(errors::CreateError{code: 2, message: format!("Improper indexed buffer definition at line {}, char {}", line, chr)})
+                                Ok(v) => SPC(IBF(v)),
+                                Err(_) => return Err(errors::CreateError{ code: 2, message: format!("Improper indexed buffer definition at line {}, char {}", line, chr) })
                             }
+                        } else {
+                            return Err(errors::CreateError{ code: 2, message: format!("Unrecognized token at line {}, char {}", line, chr) })
                         }
                     },
                 },
-            }
+            });
         }
     }
     return Ok(tokens);
