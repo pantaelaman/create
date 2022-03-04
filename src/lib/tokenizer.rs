@@ -23,6 +23,8 @@ pub enum Command {
     ATN,
     SQT,
     CBT,
+    EQU,
+    NOT,
 }
 
 #[derive(Debug, Clone)]
@@ -42,21 +44,29 @@ pub fn tokenize(data: &str) -> Result<Vec<Token>, errors::CreateError> {
             use Special::*;
             use std::f32::consts::*;
             tokens.push(match raw_token {
+                // Basic Operations
                 &"-" => CMD(SUB),
                 &"+" => CMD(ADD),
                 &"*" => CMD(MUL),
                 &"/" => CMD(DIV),
                 &"%" => CMD(MOD),
                 &"^" => CMD(POW),
+                // Trig
                 &"sin" => CMD(SIN),
                 &"cos" => CMD(COS),
                 &"tan" => CMD(TAN),
                 &"asin" => CMD(ASN),
                 &"acos" => CMD(ACS),
                 &"atan" => CMD(ATN),
+                // Roots
                 &"sqrt" => CMD(SQT),
                 &"cbrt" => CMD(CBT),
+                // Constants
                 &"pi" => NUM(PI),
+                // Boolean
+                &"==" => CMD(EQU),
+                &"!" => CMD(NOT),
+                // Buffer
                 &"~" => SPC(BUF()),
                 _ => match raw_token.parse::<f32>() {
                     Ok(v) => NUM(v),

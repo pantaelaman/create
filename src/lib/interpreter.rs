@@ -59,6 +59,12 @@ pub fn interpret_program(data: Vec<Token>) -> CreateResult {
                     ATN => Box::new(UnaryOp::new(Box::new(|v| {v.atan()}))),
                     SQT => Box::new(UnaryOp::new(Box::new(|v| {v.sqrt()}))),
                     CBT => Box::new(UnaryOp::new(Box::new(|v| {v.cbrt()}))),
+                    EQU => Box::new(BinaryOp::new(Box::new(|l,r| {
+                        if l == r {1.} else {0.}
+                    }))),
+                    NOT => Box::new(UnaryOp::new(Box::new(|l| {
+                        if l != 0. {0.} else {1.}
+                    })))
                 })
             },
             NUM(num) => {
