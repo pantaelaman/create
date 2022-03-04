@@ -40,6 +40,7 @@ pub fn tokenize(data: &str) -> Result<Vec<Token>, errors::CreateError> {
             use Token::*;
             use Command::*;
             use Special::*;
+            use std::f32::consts::*;
             tokens.push(match raw_token {
                 &"-" => CMD(SUB),
                 &"+" => CMD(ADD),
@@ -55,6 +56,7 @@ pub fn tokenize(data: &str) -> Result<Vec<Token>, errors::CreateError> {
                 &"atan" => CMD(ATN),
                 &"sqrt" => CMD(SQT),
                 &"cbrt" => CMD(CBT),
+                &"pi" => NUM(PI),
                 &"~" => SPC(BUF()),
                 _ => match raw_token.parse::<f32>() {
                     Ok(v) => NUM(v),
