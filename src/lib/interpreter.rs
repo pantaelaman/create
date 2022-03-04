@@ -45,11 +45,12 @@ pub fn interpret_program(data: Vec<Token>) -> CreateResult {
         match token {
             CMD(cmd) => {
                 writers.push_front(match cmd {
-                    ADD => Box::new(Add::new()),
-                    SUB => Box::new(Sub::new()),
-                    MUL => Box::new(Mul::new()),
-                    DIV => Box::new(Div::new()),
-                    MOD => Box::new(Mod::new()),
+                    ADD => Box::new(BinaryOp::new(Box::new(|l,r| {l+r}))),
+                    SUB => Box::new(BinaryOp::new(Box::new(|l,r| {l-r}))),
+                    MUL => Box::new(BinaryOp::new(Box::new(|l,r| {l*r}))),
+                    DIV => Box::new(BinaryOp::new(Box::new(|l,r| {l/r}))),
+                    MOD => Box::new(BinaryOp::new(Box::new(|l,r| {l%r}))),
+                    POW => Box::new(BinaryOp::new(Box::new(|l,r| {l.powf(r)})))
                 })
             },
             NUM(num) => {

@@ -14,6 +14,7 @@ pub enum Command {
     MUL,
     DIV,
     MOD,
+    POW,
 }
 
 #[derive(Debug, Clone)]
@@ -37,6 +38,7 @@ pub fn tokenize(data: &str) -> Result<Vec<Token>, errors::CreateError> {
                 &"*" => tokens.push(CMD(MUL)),
                 &"/" => tokens.push(CMD(DIV)),
                 &"%" => tokens.push(CMD(MOD)),
+                &"^" => tokens.push(CMD(POW)),
                 &"~" => tokens.push(SPC(BUF())),
                 _ => match raw_token.parse::<f32>() {
                     Ok(v) => tokens.push(NUM(v)),
