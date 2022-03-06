@@ -1,3 +1,4 @@
+use regex::Regex;
 use crate::lib::errors;
 
 #[derive(Debug, Clone)]
@@ -25,12 +26,18 @@ pub enum Command {
     CBT,
     EQU,
     NOT,
+    GTH,
+    LTH,
+    ORR,
+    AND,
 }
 
 #[derive(Debug, Clone)]
 pub enum Special {
     BUF(),
     IBF(usize),
+    SNB(String),
+    GNB(String),
 }
 
 pub fn tokenize(data: &str) -> Result<Vec<Token>, errors::CreateError> {
@@ -66,18 +73,32 @@ pub fn tokenize(data: &str) -> Result<Vec<Token>, errors::CreateError> {
                 // Boolean
                 &"==" => CMD(EQU),
                 &"!" => CMD(NOT),
+                &">" => CMD(GTH),
+                &"<" => CMD(LTH),
+                &"||" => CMD(ORR),
+                &"&&" => CMD(AND),
                 // Buffer
                 &"~" => SPC(BUF()),
                 _ => match raw_token.parse::<f32>() {
                     Ok(v) => NUM(v),
                     Err(_) => { // not a valid number
-                        if raw_token.chars().nth(0).unwrap() == '~' {
-                            match raw_token[1..].parse::<usize>() {
+                        match raw_token.chars().nth(0).unwrap() {
+                            '~' => match raw_token[1..].parse::<usize>() {
                                 Ok(v) => SPC(IBF(v)),
-                                Err(_) => return Err(errors::CreateError{ code: 2, message: format!("Improper indexed buffer definition at line {}, char {}", line, chr) })
+                                Err(_) => {
+                                    if Regex::new(r"^\w+$").unwrap().is_match(&raw_token[1..]) {
+                                        SPC(GNB(raw_token[1..].to_string()))
+                                    } else {
+                                        return Err(errors::CreateError{ code: 2, message: format!("Could not read named or indexed buffer at line {}, char {}", line, chr) })
+                                    }
+                                }
+                            },
+                            '=' => if Regex::new(r"^\w+$").unwrap().is_match(&raw_token[1..]) {
+                                SPC(SNB(raw_token[1..].to_string()))
+                            } else {
+                                return Err(errors::CreateError{ code: 2, message: format!("Invalid name for setting a named buffer at line {}, char {}", line, chr)})
                             }
-                        } else {
-                            return Err(errors::CreateError{ code: 2, message: format!("Unrecognized token at line {}, char {}", line, chr) })
+                            _ => return Err(errors::CreateError{ code: 2, message: format!("Unrecognized token at line {}, char {}", line, chr) })
                         }
                     },
                 },

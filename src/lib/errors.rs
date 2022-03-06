@@ -13,6 +13,7 @@ impl std::fmt::Display for CreateError {
             4 => "We were not able to access the buffer at a specified index.",
             5 => "There was an unfilled value in an instruction.",
             6 => "There was an uninstantiated token.",
+            7 => "Tried to write incompatible type.",
             usize::MAX => "Something went wrong.",
             _ => "Huh, we weren't able to diagnose the issue, but there was an error somewhere in here.",
         };
