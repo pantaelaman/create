@@ -83,7 +83,13 @@ pub fn read_token(tokens: &mut Vec<Token>, buffers: &mut Buffers, writers: &mut 
                 }))),
                 AND => Box::new(BinaryOp::new(Box::new(|l,r| {
                     if l == 1. && r == 1. {1.} else {0.}
-                })))
+                }))),
+                PNT => Box::new(UnaryOp::new(Box::new(|v| {print!("{}", v); v}))),
+                PTC => Box::new(UnaryOp::new(Box::new(|v| {
+                    let tv = v.trunc();
+                    print!("{}",(tv as u8) as char);
+                    tv
+                }))),
             })
         },
         NUM(num) => {
@@ -91,6 +97,9 @@ pub fn read_token(tokens: &mut Vec<Token>, buffers: &mut Buffers, writers: &mut 
         },
         SPC(spc) => {
             match spc {
+                Special::RMB() => {
+                    buffers.pop_front();
+                }
                 Special::BUF() => {
                     let buf = *match buffers.get(0) {
                         Some(v) => v,
@@ -146,6 +155,6 @@ pub fn interpret_program(data: Vec<Token>) -> CreateResult {
             CreateResult::Err(e) => return CreateResult::Err(e),
         }
     }
-    println!("{:?}", buffers[0]);
+    println!("{:?}", buffers.get(0));
     CreateResult::Ok()
 }

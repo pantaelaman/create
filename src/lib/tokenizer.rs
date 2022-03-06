@@ -30,10 +30,13 @@ pub enum Command {
     LTH,
     ORR,
     AND,
+    PNT,
+    PTC,
 }
 
 #[derive(Debug, Clone)]
 pub enum Special {
+    RMB(),
     BUF(),
     IBF(usize),
     SNB(String),
@@ -77,7 +80,11 @@ pub fn tokenize(data: &str) -> Result<Vec<Token>, errors::CreateError> {
                 &"<" => CMD(LTH),
                 &"||" => CMD(ORR),
                 &"&&" => CMD(AND),
+                // Output
+                &"." => CMD(PNT),
+                &"," => CMD(PTC),
                 // Buffer
+                &";" => SPC(RMB()),
                 &"~" => SPC(BUF()),
                 _ => match raw_token.parse::<f32>() {
                     Ok(v) => NUM(v),

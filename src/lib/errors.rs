@@ -14,6 +14,7 @@ impl std::fmt::Display for CreateError {
             5 => "There was an unfilled value in an instruction.",
             6 => "There was an uninstantiated token.",
             7 => "Tried to write incompatible type.",
+            8 => "Tried to print a floating point char.",
             usize::MAX => "Something went wrong.",
             _ => "Huh, we weren't able to diagnose the issue, but there was an error somewhere in here.",
         };
