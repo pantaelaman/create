@@ -1,3 +1,4 @@
+#[derive(Clone)]
 pub struct CreateError {
     pub code: usize,
     pub message: String,
@@ -12,9 +13,10 @@ impl std::fmt::Display for CreateError {
             3 => "There was a syntax error in the source code.",
             4 => "We were not able to access the buffer at a specified index.",
             5 => "There was an unfilled value in an instruction.",
-            6 => "There was an uninstantiated token.",
+            6 => "There was an uninstantiated named buffer.",
             7 => "Tried to write incompatible type.",
             8 => "Tried to print a floating point char.",
+            9 => "Improper condition for control flow statement.",
             usize::MAX => "Something went wrong.",
             _ => "Huh, we weren't able to diagnose the issue, but there was an error somewhere in here.",
         };

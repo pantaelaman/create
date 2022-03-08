@@ -4,7 +4,7 @@ use crate::lib::errors::*;
 pub struct BinaryOp {
     left: Option<Buffer>,
     right: Option<Buffer>,
-    op: Box<dyn Fn(Buffer, Buffer) -> Buffer>,
+    op: fn(Buffer, Buffer) -> Buffer,
 }
 
 impl Instruction for BinaryOp {
@@ -38,17 +38,19 @@ impl Instruction for BinaryOp {
             } else {Ok(false)}
         } else {Ok(false)}
     }
+
+    fn capacity(&self) -> Result<usize, CreateError> {Ok(2)}
 }
 
 impl BinaryOp {
-    pub fn new(op: Box<dyn Fn(Buffer, Buffer) -> Buffer>) -> Self {
+    pub fn new(op: fn(Buffer, Buffer) -> Buffer) -> Self {
         BinaryOp { left: None, right: None, op }
     }
 }
 
 pub struct UnaryOp {
     value: Option<Buffer>,
-    op: Box<dyn Fn(Buffer) -> Buffer>
+    op: fn(Buffer) -> Buffer,
 }
 
 impl Instruction for UnaryOp {
@@ -76,10 +78,12 @@ impl Instruction for UnaryOp {
             Ok(false)
         }
     }
+
+    fn capacity(&self) -> Result<usize, CreateError> {Ok(1)}
 }
 
 impl UnaryOp {
-    pub fn new(op: Box<dyn Fn(Buffer) -> Buffer>) -> Self {
+    pub fn new(op: fn(Buffer) -> Buffer) -> Self {
         UnaryOp { value: None, op }
     }
 }

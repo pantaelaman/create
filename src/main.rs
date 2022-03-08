@@ -18,7 +18,6 @@ struct Args {
 
 fn main() -> Result<(), CreateError> {
     let args = Args::parse();
-    println!("{:?}", args);
 
     let tokens = match read_file(args.filepath.as_str()) {
         Err(e) => {
@@ -28,7 +27,13 @@ fn main() -> Result<(), CreateError> {
         Ok(d) => tokenize(d.as_str())?,
     };
 
-    interpret_program(tokens);
+    match interpret_program(tokens) {
+        CreateResult::Ok() => (),
+        CreateResult::Err(e) => {
+            if args.debug {println!("{:?}", e)} else {println!("{}", e)}
+            return Err(e);
+        },
+    }
 
     return Ok(());
 }

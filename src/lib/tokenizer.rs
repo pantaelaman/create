@@ -6,6 +6,7 @@ pub enum Token {
     CMD(Command),
     NUM(f32),
     SPC(Special),
+    CFL(ControlFlow),
 }
 
 #[derive(Debug, Clone)]
@@ -40,7 +41,22 @@ pub enum Special {
     BUF(),
     IBF(usize),
     SNB(String),
+    SGB(String),
     GNB(String),
+    OPB(),
+    CLB(),
+}
+
+#[derive(Debug, Clone)]
+pub enum ControlFlow {
+    IFF,
+    ELS,
+    EIF,
+    FOR,
+    EFR,
+    WHL,
+    EWL,
+    BRK,
 }
 
 pub fn tokenize(data: &str) -> Result<Vec<Token>, errors::CreateError> {
@@ -52,6 +68,7 @@ pub fn tokenize(data: &str) -> Result<Vec<Token>, errors::CreateError> {
             use Token::*;
             use Command::*;
             use Special::*;
+            use ControlFlow::*;
             use std::f32::consts::*;
             tokens.push(match raw_token {
                 // Basic Operations
@@ -83,6 +100,18 @@ pub fn tokenize(data: &str) -> Result<Vec<Token>, errors::CreateError> {
                 // Output
                 &"." => CMD(PNT),
                 &"," => CMD(PTC),
+                // Control Flow
+                &"if" => CFL(IFF),
+                &"else" => CFL(ELS),
+                &"endif" => CFL(EIF),
+                &"for" => CFL(FOR),
+                &"endfor" => CFL(EFR),
+                &"while" => CFL(WHL),
+                &"endwhile" => CFL(EWL),
+                &"break" => CFL(BRK),
+                // Scoping
+                &"{" => SPC(OPB()),
+                &"}" => SPC(CLB()),
                 // Buffer
                 &";" => SPC(RMB()),
                 &"~" => SPC(BUF()),
@@ -100,12 +129,21 @@ pub fn tokenize(data: &str) -> Result<Vec<Token>, errors::CreateError> {
                                     }
                                 }
                             },
-                            '=' => if Regex::new(r"^\w+$").unwrap().is_match(&raw_token[1..]) {
-                                SPC(SNB(raw_token[1..].to_string()))
-                            } else {
-                                return Err(errors::CreateError{ code: 2, message: format!("Invalid name for setting a named buffer at line {}, char {}", line, chr)})
+                            '=' => {
+                                if Regex::new(r"^\w+$").unwrap().is_match(&raw_token[1..]) {
+                                    SPC(SNB(raw_token[1..].to_string()))
+                                } else {
+                                    return Err(errors::CreateError{ code: 2, message: format!("Invalid name for setting a named buffer at line {}, char {}", line, chr)})
+                                }
+                            },
+                            'g' => {
+                                if Regex::new(r"^=\w+$").unwrap().is_match(&raw_token[1..]) {
+                                    SPC(SGB(raw_token[2..].to_string()))
+                                } else {
+                                    return Err(errors::CreateError{ code: 2, message: format!("Invalid token {} at line {}, char {}", raw_token, line, chr)})
+                                }
                             }
-                            _ => return Err(errors::CreateError{ code: 2, message: format!("Unrecognized token at line {}, char {}", line, chr) })
+                            _ => return Err(errors::CreateError{ code: 2, message: format!("Unrecognized token {} at line {}, char {}", raw_token, line, chr) })
                         }
                     },
                 },

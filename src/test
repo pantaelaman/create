@@ -1,3 +1,6 @@
-=name 1 ;
-=name2 48 ;
-, ~name2
+=outside 1
+{
+    =inside 4
+    g=outside ~inside
+    . ~inside
+}
