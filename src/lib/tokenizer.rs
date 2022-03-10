@@ -51,11 +51,8 @@ pub enum Special {
 pub enum ControlFlow {
     IFF,
     ELS,
-    EIF,
     FOR,
-    EFR,
     WHL,
-    EWL,
     BRK,
 }
 
@@ -103,11 +100,8 @@ pub fn tokenize(data: &str) -> Result<Vec<Token>, errors::CreateError> {
                 // Control Flow
                 &"if" => CFL(IFF),
                 &"else" => CFL(ELS),
-                &"endif" => CFL(EIF),
                 &"for" => CFL(FOR),
-                &"endfor" => CFL(EFR),
                 &"while" => CFL(WHL),
-                &"endwhile" => CFL(EWL),
                 &"break" => CFL(BRK),
                 // Scoping
                 &"{" => SPC(OPB()),

@@ -1,3 +1,5 @@
+use std::rc::Rc;
+use std::cell::RefCell;
 use crate::lib::interpreter::*;
 use crate::lib::errors::*;
 
@@ -8,7 +10,7 @@ pub struct BinaryOp {
 }
 
 impl Instruction for BinaryOp {
-    fn evaluate(&mut self) -> Result<Buffer, CreateError> {
+    fn evaluate(&mut self, lossy: bool) -> Result<Buffer, CreateError> {
         if let Some(l) = self.left {
             if let Some(r) = self.right {
                 return Ok((self.op)(l,r));
@@ -40,6 +42,10 @@ impl Instruction for BinaryOp {
     }
 
     fn capacity(&self) -> Result<usize, CreateError> {Ok(2)}
+
+    fn clone_ins(&self) -> Rc<RefCell<dyn Instruction>> {
+        Rc::new(RefCell::new(BinaryOp { left: self.left.clone(), right: self.right.clone(), op: self.op.clone() }))
+    }
 }
 
 impl BinaryOp {
@@ -54,7 +60,7 @@ pub struct UnaryOp {
 }
 
 impl Instruction for UnaryOp {
-    fn evaluate(&mut self) -> Result<Buffer, CreateError> {
+    fn evaluate(&mut self, lossy: bool) -> Result<Buffer, CreateError> {
         if let Some(v) = self.value {
             Ok((self.op)(v))
         } else {
@@ -80,6 +86,10 @@ impl Instruction for UnaryOp {
     }
 
     fn capacity(&self) -> Result<usize, CreateError> {Ok(1)}
+
+    fn clone_ins(&self) -> Rc<RefCell<dyn Instruction>> {
+        Rc::new(RefCell::new(UnaryOp { value: self.value.clone(), op: self.op.clone() }))
+    }
 }
 
 impl UnaryOp {

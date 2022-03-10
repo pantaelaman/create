@@ -17,15 +17,41 @@ impl MutableBuffer {
         MutableBuffer(Vec::new())
     }
 
-    pub fn evaluate(&mut self, buffers: &mut Buffers, writers: &mut Writers, scope: &mut dyn Scoping) -> CreateResult {
-        while let Some(directive) = self.0.last() {
-            run_directive_tokenless(&mut self.0, buffers, writers, scope);
+    pub fn evaluate(&mut self, environment: &mut Environment, lossy: bool) -> CreateResult {
+        while let Some(_) = self.last() {
+            match run_directive_tokenless(&mut self.0, environment, lossy) {
+                CreateResult::Ok() => (),
+                CreateResult::Err(e) => return CreateResult::Err(e),
+            }
+        }
+        CreateResult::Ok()
+    }
+
+    pub fn evaluate_clone(&mut self, environment: &mut Environment, lossy: bool) -> CreateResult {
+        let mut cloned_directives = self.iter().map(|x| x.clone()).collect::<Vec<CreateDirective>>();
+        while let Some(_) = cloned_directives.last() {
+            match run_directive_tokenless(&mut cloned_directives, environment, lossy) {
+                CreateResult::Ok() => (),
+                CreateResult::Err(e) => return CreateResult::Err(e),
+            }
         }
         CreateResult::Ok()
     }
 }
 
-#[derive(Clone)]
+impl std::ops::Deref for MutableBuffer {
+    type Target = Vec<CreateDirective>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for MutableBuffer {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
 pub enum CreateDirective {
     READ_BUF(),
     READ_IBF(usize),
@@ -36,6 +62,23 @@ pub enum CreateDirective {
     WRITE_GNB(String),
     CONTROL(Rc<RefCell<dyn Controller>>),
     REMOVE_BUF(),
+}
+
+impl Clone for CreateDirective {
+    fn clone(&self) -> Self {
+        use CreateDirective::*;
+        match self {
+            READ_BUF() => READ_BUF(),
+            READ_IBF(i) => READ_IBF(i.clone()),
+            READ_NBF(n) => READ_NBF(n.clone()),
+            WRITE_INS(i) => WRITE_INS(i.borrow().clone_ins()),
+            WRITE_BUF(b) => WRITE_BUF(b.clone()),
+            WRITE_NBF(n) => WRITE_NBF(n.clone()),
+            WRITE_GNB(n) => WRITE_GNB(n.clone()),
+            CONTROL(c) => CONTROL(c.borrow().clone_cfl()),
+            REMOVE_BUF() => REMOVE_BUF(),
+        }
+    }
 }
 
 impl std::fmt::Debug for CreateDirective {
@@ -62,16 +105,18 @@ pub enum CreateAny {
 }
 
 pub trait Instruction {
-    fn evaluate(&mut self) -> Result<Buffer, CreateError>;
+    fn evaluate(&mut self, lossy: bool) -> Result<Buffer, CreateError>;
     fn write_buffer(&mut self, _value: Buffer) -> CreateResult {
         CreateResult::Err(CreateError { code: 7, message: "Tried to write a buffer to an incompatible instruction.".to_string() })
     }
     fn is_full(&self) -> Result<bool, CreateError>;
     fn capacity(&self) -> Result<usize, CreateError>; 
+    fn clone_ins(&self) -> Rc<RefCell<dyn Instruction>>;
 }
 
 pub trait Controller {
-    fn run(&mut self, buffers: &mut Buffers, writers: &mut Writers, scope: &mut dyn Scoping) -> CreateResult;
+    fn run(&mut self, environment: &mut Environment, lossy: bool) -> CreateResult;
+    fn clone_cfl(&self) -> Rc<RefCell<dyn Controller>>;
 }
 
 pub trait Scoping {
@@ -90,6 +135,12 @@ pub trait Scoping {
 pub type Buffers = VecDeque<Buffer>;
 pub type Writers = VecDeque<Rc<RefCell<dyn Instruction>>>;
 pub type PrimitiveScope = HashMap<String, CreateAny>;
+
+pub struct Environment<'a> {
+    pub buffers: &'a mut Buffers,
+    pub writers: &'a mut Writers,
+    pub scope: &'a mut dyn Scoping,
+}
 
 pub struct Scope<'a> {
     parent: Box<&'a mut dyn Scoping>,
@@ -123,7 +174,7 @@ impl<'a> Scoping for Scope<'a> {
         self.scope.insert(key, value)
     }
     fn contains_key(&self, key: &String) -> bool {
-        self.scope.contains_key(key)
+        self.scope.contains_key(key) || self.parent.contains_key(key)
     }
     fn scope_type(&self) -> &str {"regular"}
 }
@@ -144,7 +195,7 @@ impl Scoping for PrimitiveScope {
     fn scope_type(&self) -> &str {"primitive"}
 }
 
-fn write(buffers: &mut Buffers, writers: &mut Writers, buf: Buffer) -> CreateResult {
+fn write(buffers: &mut Buffers, writers: &mut Writers, buf: Buffer, lossy: bool) -> CreateResult {
     if writers.is_empty() {
         buffers.push_front(buf);
         CreateResult::Ok()
@@ -155,111 +206,143 @@ fn write(buffers: &mut Buffers, writers: &mut Writers, buf: Buffer) -> CreateRes
             Err(e) => return CreateResult::Err(e),
         } {
             let curwriter = writers.pop_front().unwrap();
-            write(buffers, writers, match curwriter.borrow_mut().evaluate() {
+            write(buffers, writers, match curwriter.borrow_mut().evaluate(lossy) {
                 Ok(v) => v,
                 Err(e) => return CreateResult::Err(e),
-            });
+            }, lossy);
         }
         CreateResult::Ok()
     }
 }
 
-pub fn write_token(tokens: &mut Vec<Token>, buffers: &mut Buffers, writers: &mut Writers, scope: &mut dyn Scoping) -> CreateResult {
+pub fn write_token(tokens: &mut Vec<Token>, environment: &mut Environment) -> CreateResult {
     match read_token(tokens) {
-        Ok(d) => run_directive(d, tokens, buffers, writers, scope),
+        Ok(d) => run_directive(d, tokens, environment, true),
         Err(e) => CreateResult::Err(e),
     }
 }
 
-pub fn run_directive(directive: CreateDirective, tokens: &mut Vec<Token>, buffers: &mut Buffers, writers: &mut Writers, scope: &mut dyn Scoping) -> CreateResult {
+pub fn run_directive(directive: CreateDirective, tokens: &mut Vec<Token>, environment: &mut Environment, lossy: bool) -> CreateResult {
     use CreateDirective::*;
     match directive {
-        READ_BUF() => write(buffers, writers, match buffers.get(0) {
+        READ_BUF() => write(environment.buffers, environment.writers, match environment.buffers.get(0) {
             Some(v) => *v,
             None => return CreateResult::Err(CreateError { code: 4, message: "Could not read buffer at index 0".to_string() }),
-        }),
-        READ_IBF(i) => write(buffers, writers, match buffers.get(i) {
+        }, lossy),
+        READ_IBF(i) => write(environment.buffers, environment.writers, match environment.buffers.get(i) {
             Some(v) => *v,
             None => return CreateResult::Err(CreateError { code: 4, message: format!("Could not read buffer at index {}", i) }),
-        }),
-        READ_NBF(n) => write(buffers, writers, match scope.get_buf(&n) {
+        }, lossy),
+        READ_NBF(n) => write(environment.buffers, environment.writers, match environment.scope.get_buf(&n) {
             Ok(v) => *v,
             Err(e) => return CreateResult::Err(e),
-        }),
-        WRITE_BUF(b) => write(buffers, writers, b),
+        }, lossy),
+        WRITE_BUF(b) => write(environment.buffers, environment.writers, b, lossy),
         WRITE_INS(i) => {
-            writers.push_front(i);
+            environment.writers.push_front(i);
             CreateResult::Ok()
         },
         WRITE_NBF(n) => {
-            scope.insert(n, match read_value(tokens) {
+            let mut mutbuffer = match read_mutable_buffer(tokens, Some(1)) {
                 Ok(v) => v,
                 Err(e) => return CreateResult::Err(e),
+            };
+            match mutbuffer.evaluate(environment, lossy) {
+                CreateResult::Ok() => (),
+                CreateResult::Err(e) => return CreateResult::Err(e),
+            }
+            environment.scope.insert(n, match environment.buffers.get(0) {
+                Some(b) => CreateAny::BUF(*b),
+                None => return CreateResult::Err(CreateError { code: 3, message: "Named buffer was attempted to be set to null.".to_string() })
             });
             CreateResult::Ok()
         },
         WRITE_GNB(n) => {
-            scope.insert_globally(n, match read_value(tokens) {
+            let mut mutbuffer = match read_mutable_buffer(tokens, Some(1)) {
                 Ok(v) => v,
                 Err(e) => return CreateResult::Err(e),
+            };
+            match mutbuffer.evaluate(environment, lossy) {
+                CreateResult::Ok() => (),
+                CreateResult::Err(e) => return CreateResult::Err(e),
+            }
+            environment.scope.insert_globally(n, match environment.buffers.get(0) {
+                Some(b) => CreateAny::BUF(*b),
+                None => return CreateResult::Err(CreateError { code: 3, message: "Named buffer was attempted to be set to null.".to_string() })
             });
             CreateResult::Ok()
         },
         CONTROL(c) => {
-            c.borrow_mut().run(buffers, writers, scope)
+            c.borrow_mut().run(environment, lossy)
         },
         REMOVE_BUF() => {
-            buffers.pop_front();
+            environment.buffers.pop_front();
             CreateResult::Ok()
         },
     }
 }
 
-pub fn run_directive_tokenless(directives: &mut Vec<CreateDirective>, buffers: &mut Buffers, writers: &mut Writers, scope: &mut dyn Scoping) -> CreateResult {
+pub fn run_directive_tokenless(directives: &mut Vec<CreateDirective>, environment: &mut Environment, lossy: bool) -> CreateResult {
     use CreateDirective::*;
     let directive = match directives.pop() {
         Some(v) => v,
         None => return CreateResult::Err(CreateError { code: usize::MAX, message: "Something went wrong.".to_string() })
     };
     match directive {
-        READ_BUF() => write(buffers, writers, match buffers.get(0) {
+        READ_BUF() => write(environment.buffers, environment.writers, match environment.buffers.get(0) {
             Some(v) => *v,
             None => return CreateResult::Err(CreateError { code: 4, message: "Could not read buffer at index 0".to_string() }),
-        }),
-        READ_IBF(i) => write(buffers, writers, match buffers.get(i) {
+        }, lossy),
+        READ_IBF(i) => write(environment.buffers, environment.writers, match environment.buffers.get(i) {
             Some(v) => *v,
             None => return CreateResult::Err(CreateError { code: 4, message: format!("Could not read buffer at index {}", i) }),
-        }),
-        READ_NBF(n) => write(buffers, writers, match scope.get_buf(&n) {
+        }, lossy),
+        READ_NBF(n) => write(environment.buffers, environment.writers, match environment.scope.get_buf(&n) {
             Ok(v) => *v,
             Err(e) => return CreateResult::Err(e),
-        }),
-        WRITE_BUF(b) => write(buffers, writers, b),
+        }, lossy),
+        WRITE_BUF(b) => {
+            write(environment.buffers, environment.writers, b, lossy)
+        },
         WRITE_INS(i) => {
-            writers.push_front(i);
+            environment.writers.push_front(i);
             CreateResult::Ok()
         },
         WRITE_NBF(n) => {
-            let value = match read_value_tokenless(directives, buffers, writers, scope) {
+            let mut mutbuffer = match read_mutable_buffer_tokenless(directives) {
                 Ok(v) => v,
                 Err(e) => return CreateResult::Err(e),
             };
-            scope.insert(n, value);
+            match mutbuffer.evaluate(environment, lossy) {
+                CreateResult::Ok() => (),
+                CreateResult::Err(e) => return CreateResult::Err(e),
+            }
+            environment.scope.insert(n, match environment.buffers.get(0) {
+                Some(b) => CreateAny::BUF(*b),
+                None => return CreateResult::Err(CreateError { code: 3, message: "Named buffer was attempted to be set to null.".to_string() })
+            });
             CreateResult::Ok()
         },
         WRITE_GNB(n) => {
-            let value = match read_value_tokenless(directives, buffers, writers, scope) {
+            let mut mutbuffer = match read_mutable_buffer_tokenless(directives) {
                 Ok(v) => v,
                 Err(e) => return CreateResult::Err(e),
             };
-            scope.insert_globally(n, value);
+            match mutbuffer.evaluate(environment, lossy) {
+                CreateResult::Ok() => (),
+                CreateResult::Err(e) => return CreateResult::Err(e),
+            }
+            environment.scope.insert_globally(n, match environment.buffers.get(0) {
+                Some(b) => CreateAny::BUF(*b),
+                None => return CreateResult::Err(CreateError { code: 3, message: "Named buffer was attempted to be set to null.".to_string() })
+            });
             CreateResult::Ok()
         },
         CONTROL(c) => {
-            c.borrow_mut().run(buffers, writers, scope)
+            c.borrow_mut().run(environment, lossy)
         },
         REMOVE_BUF() => {
-            buffers.pop_front();
+            environment.buffers.pop_front();
             CreateResult::Ok()
         }
     }
@@ -330,9 +413,14 @@ pub fn read_token(tokens: &mut Vec<Token>) -> Result<CreateDirective, CreateErro
                 GNB(n) => Ok(CreateDirective::READ_NBF(n)),
                 OPB() => {
                     let mut scopedbuffers: Vec<MutableBuffer> = Vec::new();
-                    while let Some(token) = tokens.last() {
-                        if let SPC(CLB()) = token {tokens.pop(); break}
-                        scopedbuffers.push(read_mutable_buffer(tokens)?);
+                    let mut scopedtokens: Vec<Token> = Vec::new();
+                    while let Some(token) = tokens.pop() {
+                        if let SPC(CLB()) = token {break}
+                        scopedtokens.push(token);
+                    }
+                    scopedtokens.reverse();
+                    while let Some(_) = scopedtokens.last() {
+                        scopedbuffers.push(read_mutable_buffer(&mut scopedtokens, None)?)
                     }
                     scopedbuffers.reverse();
                     let control = Scoped::new(scopedbuffers);
@@ -344,117 +432,137 @@ pub fn read_token(tokens: &mut Vec<Token>) -> Result<CreateDirective, CreateErro
         CFL(cfl) => {
             match cfl {
                 IFF => {
-                    let mut iftokens: Vec<Token> = Vec::new();
-                    let condition = match read_value(tokens)? {
-                        CreateAny::BUF(buf) => buf,
-                        _ => return Err(CreateError { code: 9, message: "Tried to use a non-buffer as the condition for an if controller.".to_string() }),
-                    };
-                    let mut elsey = false;
-                    while let Some(token) = tokens.pop() {
-                        if let CFL(EIF) = token {break}
-                        if let CFL(ELS) = token {elsey = true; break}
-                        iftokens.push(token);
-                    }
-                    iftokens.reverse();
-                    if elsey {
-                        let mut elsetokens: Vec<Token> = Vec::new();
-                        while let Some(token) = tokens.pop() {
-                            if let CFL(EIF) = token {break}
-                            elsetokens.push(token);
-                        }
-                        elsetokens.reverse();
-                        Ok(CreateDirective::CONTROL(Rc::new(RefCell::new(IfElse::new(condition, iftokens, elsetokens)))))
+                    let condition = read_mutable_buffer(tokens, None)?;
+                    let ifmutbuffer = read_mutable_buffer(tokens, None)?;
+                    if let Some(CFL(ELS)) = tokens.last() {
+                        tokens.pop();
+                        Ok(CreateDirective::CONTROL(Rc::new(RefCell::new(IfElse::new(condition, ifmutbuffer, read_mutable_buffer(tokens, None)?)))))
                     } else {
-                        let control = If::new(condition, iftokens);
+                        let control = If::new(condition, ifmutbuffer);
                         Ok(CreateDirective::CONTROL(Rc::new(RefCell::new(control))))
                     }
                 },
                 FOR => {
-                    let mut fortokens: Vec<Token> = Vec::new();
                     let mut identifier: Option<String> = None;
                     if let Some(SPC(SNB(i))) = tokens.last() {
                         identifier = Some(i.clone());
                         tokens.pop();
                     }
-                    let condition = match read_value(tokens)? {
-                        CreateAny::BUF(buf) => buf,
-                        _ => return Err(CreateError { code: 9, message: "Tried to use a non-buffer as the conditional for a for controller.".to_string() }),
-                    };
-                    while let Some(token) = tokens.pop() {
-                        if let CFL(EFR) = token {break}
-                        fortokens.push(token);
-                    }
-                    fortokens.reverse();
-                    let control = For::new(condition, identifier, fortokens);
+                    let condition = read_mutable_buffer(tokens, None)?;
+                    let control = For::new(condition, identifier, read_mutable_buffer(tokens, None)?);
                     Ok(CreateDirective::CONTROL(Rc::new(RefCell::new(control))))
                 },
                 WHL => {
-                    let mut whiletokens: Vec<Token> = Vec::new();
-                    while let Some(token) = tokens.pop() {
-                        if let CFL(EWL) = token {break}
-                        whiletokens.push(token);
-                    }
-                    whiletokens.reverse();
-                    let control = While::new(whiletokens)?;
+                    let control = While::new(read_mutable_buffer(tokens, None)?, read_mutable_buffer(tokens, None)?);
                     Ok(CreateDirective::CONTROL(Rc::new(RefCell::new(control))))
-                },
+                }
                 _ => Err(CreateError { code: 3, message: "Unexpected control flow token found.".to_string() }),
             }
         }
     }
 }
 
-pub fn read_value(tokens: &mut Vec<Token>) -> Result<CreateAny, CreateError> {
-    let mut writers: Writers = Writers::new();
-    let mut buffers: Buffers = Buffers::new();
-    let mut scope: PrimitiveScope = PrimitiveScope::new();
+pub fn read_value(tokens: &mut Vec<Token>, environment: &mut Environment) -> Result<CreateAny, CreateError> {
     while let Some(_) = tokens.last() {
-        write_token(tokens, &mut buffers, &mut writers, &mut scope);
-        if buffers.len() > 0 {break}
+        write_token(tokens, environment);
+        if environment.buffers.len() > 0 {break}
     }
-    Ok(CreateAny::BUF(match buffers.get(0) {
+    Ok(CreateAny::BUF(match environment.buffers.get(0) {
         Some(v) => *v,
         None => return Err(CreateError{ code: usize::MAX, message: "There was an issue.".to_string() })
     }))
 }
 
-pub fn read_value_tokenless(directives: &mut Vec<CreateDirective>, buffers: &mut Buffers, writers: &mut Writers, scope: &mut dyn Scoping) -> Result<CreateAny, CreateError> {
+pub fn read_value_tokenless(directives: &mut Vec<CreateDirective>, environment: &mut Environment, lossy: bool) -> Result<CreateAny, CreateError> {
     while let Some(_) = directives.last() {
-        match run_directive_tokenless(directives, buffers, writers, scope) {
+        match run_directive_tokenless(directives, environment, lossy) {
             CreateResult::Ok() => (),
             CreateResult::Err(e) => return Err(e),
         }
-        if buffers.len() > 0 {break}
+        if environment.buffers.len() > 0 {break}
     }
-    Ok(CreateAny::BUF(buffers[0]))
+    Ok(CreateAny::BUF(environment.buffers[0]))
 }
 
-pub fn read_mutable_buffer(tokens: &mut Vec<Token>) -> Result<MutableBuffer, CreateError> {
+pub fn read_mutable_buffer(tokens: &mut Vec<Token>, capacity: Option<i32>) -> Result<MutableBuffer, CreateError> {
     let mut mutbuffer = MutableBuffer::new();
-    let mut capacity = 0;
-    while let Some(_) = tokens.last() {
+    let mut capacity = match capacity {
+        Some(v) => vec![v],
+        None => Vec::new(),
+    };
+    'main: while let Some(_) = tokens.last() {
         use CreateDirective::*;
         let current = read_token(tokens)?;
-        mutbuffer.0.push(current);
-        match mutbuffer.0.last().unwrap() {
+        mutbuffer.push(current);
+        match mutbuffer.last().unwrap() {
             READ_BUF()
             | READ_IBF(_)
             | READ_NBF(_)
             | WRITE_BUF(_) => {
-                capacity -= 1;
+                'rec: loop {
+                    match capacity.last_mut() { 
+                        Some(v) => {
+                            *v -= 1;
+                            if capacity.last().unwrap() <= &0 {
+                                capacity.pop();
+                                continue 'rec;
+                            }
+                            break 'rec;
+                        },
+                        None => break 'main,
+                    };
+                }
             },
             WRITE_INS(i) => {
-                capacity += i.borrow().capacity()? as i32
+                capacity.push(i.borrow().capacity()? as i32)
             },
             WRITE_GNB(_)
             | WRITE_NBF(_) => {
-                capacity += 1;
+                capacity.push(1);
             },
             _ => (),
         }
-        if capacity <= 0 {break}
+        if capacity.is_empty() {break}
     }
-    mutbuffer.0.reverse();
+    mutbuffer.reverse();
+    Ok(mutbuffer)
+}
+
+pub fn read_mutable_buffer_tokenless(directives: &mut Vec<CreateDirective>) -> Result<MutableBuffer, CreateError> {
+    let mut mutbuffer = MutableBuffer::new();
+    let mut capacity = Vec::new();
+    'main: while let Some(directive) = directives.pop() {
+        use CreateDirective::*;
+        mutbuffer.push(directive);
+        match mutbuffer.last().unwrap() {
+            READ_BUF()
+            | READ_IBF(_)
+            | READ_NBF(_)
+            | WRITE_BUF(_) => {
+                'rec: loop {
+                    match capacity.last_mut() {
+                        Some(v) => {
+                            *v -= 1;
+                            if capacity.last().unwrap() <= &0 {
+                                capacity.pop();
+                                continue 'rec;
+                            }
+                            break 'rec;
+                        },
+                        None => break 'main,
+                    }
+                }
+            },
+            WRITE_INS(i) => {
+                capacity.push(i.borrow().capacity()? as i32);
+            },
+            WRITE_GNB(_)
+            | WRITE_NBF(_) => capacity.push(1),
+            _ => (),
+        }
+        if capacity.is_empty() {break}
+    }
+    mutbuffer.reverse();
     Ok(mutbuffer)
 }
 
@@ -464,8 +572,13 @@ pub fn interpret_program(data: Vec<Token>) -> CreateResult {
     let mut writers: Writers = Writers::new();
     let mut buffers: Buffers = Buffers::new();
     let mut scope: PrimitiveScope = PrimitiveScope::new();
+    let mut environment: Environment = Environment { 
+        writers: &mut writers, 
+        buffers: &mut buffers, 
+        scope: &mut scope,
+    };
     while let Some(_) = program.last() {
-        match write_token(&mut program, &mut buffers, &mut writers, &mut scope) {
+        match write_token(&mut program, &mut environment) {
             CreateResult::Ok() => (),
             CreateResult::Err(e) => return CreateResult::Err(e),
         }

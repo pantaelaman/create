@@ -1,6 +1,11 @@
-=outside 1
-{
-    =inside 4
-    g=outside ~inside
-    . ~inside
+=cond 0
+
+while < ~cond 6 {
+    =cond + ~cond 1
+    . ~cond
 }
+
+, 10
+
+. ~cond
+, 10
