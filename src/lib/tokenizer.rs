@@ -41,10 +41,16 @@ pub enum Special {
     BUF(),
     IBF(usize),
     SNB(String),
+    SNA(String),
     SGB(String),
+    SGA(String),
+    SLB(String),
+    SLA(String),
     GNB(String),
     OPB(),
     CLB(),
+    OPS(),
+    CLS(),
 }
 
 #[derive(Debug, Clone)]
@@ -52,6 +58,7 @@ pub enum ControlFlow {
     IFF,
     ELS,
     FOR,
+    FRN,
     WHL,
     BRK,
 }
@@ -101,11 +108,15 @@ pub fn tokenize(data: &str) -> Result<Vec<Token>, errors::CreateError> {
                 &"if" => CFL(IFF),
                 &"else" => CFL(ELS),
                 &"for" => CFL(FOR),
+                &"forin" => CFL(FRN),
                 &"while" => CFL(WHL),
                 &"break" => CFL(BRK),
                 // Scoping
                 &"{" => SPC(OPB()),
                 &"}" => SPC(CLB()),
+                // Array
+                &"[" => SPC(OPS()),
+                &"]" => SPC(CLS()),
                 // Buffer
                 &";" => SPC(RMB()),
                 &"~" => SPC(BUF()),
@@ -126,6 +137,8 @@ pub fn tokenize(data: &str) -> Result<Vec<Token>, errors::CreateError> {
                             '=' => {
                                 if Regex::new(r"^\w+$").unwrap().is_match(&raw_token[1..]) {
                                     SPC(SNB(raw_token[1..].to_string()))
+                                } else if Regex::new(r"^\[\]\w+$").unwrap().is_match(&raw_token[1..]) {
+                                    SPC(SNA(raw_token[3..].to_string()))
                                 } else {
                                     return Err(errors::CreateError{ code: 2, message: format!("Invalid name for setting a named buffer at line {}, char {}", line, chr)})
                                 }
@@ -133,6 +146,17 @@ pub fn tokenize(data: &str) -> Result<Vec<Token>, errors::CreateError> {
                             'g' => {
                                 if Regex::new(r"^=\w+$").unwrap().is_match(&raw_token[1..]) {
                                     SPC(SGB(raw_token[2..].to_string()))
+                                } else if Regex::new(r"^=\[\]\w+$").unwrap().is_match(&raw_token[1..]) {
+                                    SPC(SGA(raw_token[4..].to_string()))
+                                } else {
+                                    return Err(errors::CreateError{ code: 2, message: format!("Invalid token {} at line {}, char {}", raw_token, line, chr)})
+                                }
+                            },
+                            'l' => {
+                                if Regex::new(r"^=\w+$").unwrap().is_match(&raw_token[1..]) {
+                                    SPC(SLB(raw_token[2..].to_string()))
+                                } else if Regex::new(r"^=\[\]\w+$").unwrap().is_match(&raw_token[1..]) {
+                                    SPC(SLA(raw_token[4..].to_string()))
                                 } else {
                                     return Err(errors::CreateError{ code: 2, message: format!("Invalid token {} at line {}, char {}", raw_token, line, chr)})
                                 }

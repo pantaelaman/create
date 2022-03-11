@@ -10,7 +10,7 @@ pub struct BinaryOp {
 }
 
 impl Instruction for BinaryOp {
-    fn evaluate(&mut self, lossy: bool) -> Result<Buffer, CreateError> {
+    fn evaluate(&mut self, _lossy: bool) -> Result<Buffer, CreateError> {
         if let Some(l) = self.left {
             if let Some(r) = self.right {
                 return Ok((self.op)(l,r));
@@ -19,16 +19,24 @@ impl Instruction for BinaryOp {
         Err(CreateError { code: 5, message: "There was an unfilled value within a Binary Operator".to_string() })
     }
     
-    fn write_buffer(&mut self, value: Buffer) -> CreateResult {
+    fn write_buffer(&mut self, value: CreateAny) -> CreateResult {
         if let Some(_) = self.left {
             if let Some(_) = self.right {
                 CreateResult::Err(CreateError { code: 3, message: "Tried to add a value to a filled Binary Operator".to_string() })
             } else {
-                self.right = Some(value);
+                if let CreateAny::BUF(b) = value {
+                    self.right = Some(b);
+                } else {
+                    return CreateResult::Err(CreateError { code: 3, message: "Tried to add a non-buffer to a Binary Operator".to_string() });
+                }
                 CreateResult::Ok()
             }
         } else {
-            self.left = Some(value);
+            if let CreateAny::BUF(b) = value {
+                self.left = Some(b);
+            } else {
+                return CreateResult::Err(CreateError { code: 3, message: "Tried to add a non-buffer to a Binary Operator".to_string() });
+            }
             CreateResult::Ok()
         }
     }
@@ -60,7 +68,7 @@ pub struct UnaryOp {
 }
 
 impl Instruction for UnaryOp {
-    fn evaluate(&mut self, lossy: bool) -> Result<Buffer, CreateError> {
+    fn evaluate(&mut self, _lossy: bool) -> Result<Buffer, CreateError> {
         if let Some(v) = self.value {
             Ok((self.op)(v))
         } else {
@@ -68,11 +76,15 @@ impl Instruction for UnaryOp {
         }
     }
 
-    fn write_buffer(&mut self, val: Buffer) -> CreateResult {
+    fn write_buffer(&mut self, val: CreateAny) -> CreateResult {
         if let Some(_) = self.value {
             CreateResult::Err(CreateError { code: 3, message: "Tried to add a value to a filled Unary Operator".to_string() })
         } else {
-            self.value = Some(val);
+            if let CreateAny::BUF(b) = val {
+                self.value = Some(b);
+            } else {
+                return CreateResult::Err(CreateError { code: 3, message: "Tried to add a non-buffer to a Unary Operator".to_string() });
+            }
             CreateResult::Ok()
         }
     }

@@ -1,11 +1,6 @@
-=cond 0
+=[]cond [ 1 14 2 -2 ]
 
-while < ~cond 6 {
-    =cond + ~cond 1
-    . ~cond
+forin =p ~cond {
+    . ~p
+    , 10
 }
-
-, 10
-
-. ~cond
-, 10
