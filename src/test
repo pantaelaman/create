@@ -1,6 +1,5 @@
 =[]cond [ 1 14 2 -2 ]
+=test 3
 
-forin =p ~cond {
-    . ~p
-    , 10
-}
+. ~cond[ 1 ]
+, 10

@@ -46,6 +46,7 @@ pub enum Special {
     SGA(String),
     SLB(String),
     SLA(String),
+    GIA(String),
     GNB(String),
     OPB(),
     CLB(),
@@ -129,6 +130,8 @@ pub fn tokenize(data: &str) -> Result<Vec<Token>, errors::CreateError> {
                                 Err(_) => {
                                     if Regex::new(r"^\w+$").unwrap().is_match(&raw_token[1..]) {
                                         SPC(GNB(raw_token[1..].to_string()))
+                                    } else if Regex::new(r"^\w+\[$").unwrap().is_match(&raw_token[1..]) {
+                                        SPC(GIA(raw_token[1..(raw_token.len()-1)].to_string()))
                                     } else {
                                         return Err(errors::CreateError{ code: 2, message: format!("Could not read named or indexed buffer at line {}, char {}", line, chr) })
                                     }

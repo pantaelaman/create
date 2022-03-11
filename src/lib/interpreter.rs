@@ -50,6 +50,15 @@ impl MutableBuffer {
         }
         CreateResult::Ok()
     }
+
+    pub fn eval_return(&mut self, environment: &mut Environment, lossy: bool) -> Result<Option<Box<CreateAny>>, CreateError> {
+        let mut exposed_buffer = PartitionedBuffers::new(environment.buffers);
+        self.evaluate(&mut Environment { buffers: &mut exposed_buffer, writers: &mut Writers::new(), scope: environment.scope }, lossy);
+        match exposed_buffer.get_return() {
+            Some(v) => Ok(Some(v)),
+            None => Ok(None),
+        }
+    }
 }
 
 impl std::ops::Deref for MutableBuffer {
@@ -68,6 +77,7 @@ impl std::ops::DerefMut for MutableBuffer {
 pub enum CreateDirective {
     READ_BUF(),
     READ_IBF(usize),
+    READ_IAR(String, MutableBuffer),
     READ_NBF(String),
     WRITE_INS(Rc<RefCell<dyn Instruction>>),
     WRITE_BUF(Buffer),
@@ -88,6 +98,7 @@ impl Clone for CreateDirective {
         match self {
             READ_BUF() => READ_BUF(),
             READ_IBF(i) => READ_IBF(i.clone()),
+            READ_IAR(n, m) => READ_IAR(n.clone(), m.clone()),
             READ_NBF(n) => READ_NBF(n.clone()),
             WRITE_INS(i) => WRITE_INS(i.borrow().clone_ins()),
             WRITE_BUF(b) => WRITE_BUF(b.clone()),
@@ -110,6 +121,7 @@ impl std::fmt::Debug for CreateDirective {
         let string = match self {
             READ_BUF() => "READ_BUF".to_string(),
             READ_IBF(i) => format!("READ_IBF({})", i),
+            READ_IAR(n, m) => format!("READ_IAR({}, {:?})", n, m),
             READ_NBF(n) => format!("READ_NBF({})", n),
             WRITE_INS(_) => "WRITE_INS(...)".to_string(),
             WRITE_BUF(b) => format!("WRITE_BUF({})", b),
@@ -165,6 +177,40 @@ pub type Buffers = VecDeque<CreateAny>;
 pub type Writers = VecDeque<Rc<RefCell<dyn Instruction>>>;
 pub type PrimitiveScope = HashMap<String, CreateAny>;
 
+pub struct PartitionedBuffers<'a> {
+    prev: &'a mut dyn Buffering,
+    new: Box<dyn Buffering>,
+}
+
+impl<'a> PartitionedBuffers<'a> {
+    pub fn new(prev: &'a mut dyn Buffering) -> Self {
+        PartitionedBuffers { prev, new: Box::new(Buffers::new()) }
+    }
+
+    pub fn get_return(&self) -> Option<Box<CreateAny>> {
+        self.new.get(0)
+    }
+
+    pub fn get_return_buf(&self) -> Option<Box<Buffer>> {
+        self.new.get_buf(0)
+    }
+
+    pub fn get_return_arr(&self) -> Option<Box<Array>> {
+        self.new.get_arr(0)
+    }
+
+    pub fn trunc(self) -> &'a mut dyn Buffering {
+        self.prev
+    }
+
+    pub fn combine(mut self) -> &'a mut dyn Buffering {
+        while let Some(v) = self.new.pop() {
+            self.prev.push(v);
+        }
+        self.prev
+    }
+}
+
 pub trait Buffering {
     fn get(&self, index: usize) -> Option<Box<CreateAny>>;
     fn get_buf(&self, index: usize) -> Option<Box<Buffer>>;
@@ -174,6 +220,7 @@ pub trait Buffering {
     fn push_arr(&mut self, value: Array);
     fn pop(&mut self) -> Option<CreateAny>;
     fn len(&self) -> usize;
+    fn is_empty(&self) -> bool;
 }
 
 impl Buffering for Buffers {
@@ -216,6 +263,61 @@ impl Buffering for Buffers {
 
     fn len(&self) -> usize {
         self.len()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.is_empty()
+    }
+}
+
+impl<'a> Buffering for PartitionedBuffers<'a> {
+    fn get(&self, index: usize) -> Option<Box<CreateAny>> {
+        match self.new.get(index) {
+            Some(v) => Some(v),
+            None => self.prev.get(index - self.new.len()),
+        }
+    }
+
+    fn get_buf(&self, index: usize) -> Option<Box<Buffer>> {
+        match self.new.get_buf(index) {
+            Some(v) => Some(v),
+            None => self.prev.get_buf(index - self.new.len()),
+        }
+    }
+
+    fn get_arr(&self, index: usize) -> Option<Box<Array>> {
+        match self.new.get_arr(index) {
+            Some(v) => Some(v),
+            None => self.prev.get_arr(index - self.new.len()),
+        }
+    }
+
+    fn push(&mut self, value: CreateAny) {
+        self.new.push(value);
+    }
+
+    fn push_buf(&mut self, value: Buffer) {
+        self.new.push_buf(value);
+    }
+
+    fn push_arr(&mut self, value: Array) {
+        self.new.push_arr(value);
+    }
+
+    fn pop(&mut self) -> Option<CreateAny> {
+        if self.new.is_empty() {
+            self.prev.pop()
+        } else {
+            self.new.pop()
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.prev.len() + self.new.len()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.new.is_empty() && self.prev.is_empty()
     }
 }
 
@@ -322,6 +424,26 @@ pub fn run_directive(directive: CreateDirective, tokens: &mut Vec<Token>, enviro
             };
             write(environment.buffers, environment.writers, buf.into(), lossy)
         },
+        READ_IAR(n, mut m) => {
+            let index = match m.eval_return(environment, lossy) {
+                Ok(Some(v)) => match *v {
+                    CreateAny::BUF(b) => b,
+                    _ => return CreateResult::Err(CreateError { code: 3, message: "Index of array did not return buffer, and none was found.".to_string() }),
+                },
+                Err(e) => return CreateResult::Err(e),
+                _ => return CreateResult::Err(CreateError { code: 3, message: "Index of array did not return buffer, and none was found.".to_string() }),
+            };
+            let arr = match environment.scope.get(&n) {
+                Ok(CreateAny::ARR(a)) => a,
+                Ok(_) => return CreateResult::Err(CreateError { code: 3, message: format!("Identifier {} was not an array as expected.", n) }),
+                Err(e) => return CreateResult::Err(e),
+            };
+            let val = match arr.get(index as usize) {
+                Some(v) => v,
+                None => return CreateResult::Err(CreateError { code: 3, message: format!("Value at index {} in array {} was outside of the array", index, n) })
+            };
+            write(environment.buffers, environment.writers, val.clone(), lossy)
+        },
         READ_NBF(n) => write(environment.buffers, environment.writers, match environment.scope.get(&n) {
             Ok(v) => v.clone(),
             Err(e) => return CreateResult::Err(e),
@@ -365,7 +487,6 @@ pub fn run_directive(directive: CreateDirective, tokens: &mut Vec<Token>, enviro
                 Ok(v) => v,
                 Err(e) => return CreateResult::Err(e),
             };
-            println!("{:?}", mutbuffer);
             match mutbuffer.evaluate(environment, lossy) {
                 CreateResult::Ok() => (),
                 CreateResult::Err(e) => return CreateResult::Err(e),
@@ -471,6 +592,27 @@ pub fn run_directive_tokenless(directives: &mut Vec<CreateDirective>, environmen
             Ok(v) => v.clone(),
             Err(e) => return CreateResult::Err(e),
         }, lossy),
+        READ_IAR(n, mut m) => {
+            let index = match m.eval_return(environment, lossy) {
+                Ok(Some(v)) => match *v {
+                    CreateAny::BUF(b) => b,
+                    _ => return CreateResult::Err(CreateError { code: 3, message: "Index of array did not return buffer, and none was found.".to_string() }),
+                },
+                Err(e) => return CreateResult::Err(e),
+                _ => return CreateResult::Err(CreateError { code: 3, message: "Index of array did not return buffer, and none was found.".to_string() }),
+            };
+            let arr = match environment.scope.get(&n) {
+                Ok(CreateAny::ARR(a)) => a,
+                Ok(_) => return CreateResult::Err(CreateError { code: 3, message: format!("Identifier {} was not an array as expected.", n) }),
+                Err(e) => return CreateResult::Err(e),
+            };
+            let val = match arr.get(index as usize) {
+                Some(v) => v,
+                None => return CreateResult::Err(CreateError { code: 3, message: format!("Value at index {} in array {} was outside of the array", index, n) })
+            };
+            environment.buffers.pop();
+            write(environment.buffers, environment.writers, val.clone(), lossy)
+        }
         WRITE_BUF(b) => {
             write(environment.buffers, environment.writers, b.into(), lossy)
         },
@@ -662,8 +804,13 @@ pub fn read_token(tokens: &mut Vec<Token>) -> Result<CreateDirective, CreateErro
                 OPB() => {
                     let mut scopedbuffers: Vec<MutableBuffer> = Vec::new();
                     let mut scopedtokens: Vec<Token> = Vec::new();
+                    let mut buf = 0;
                     while let Some(token) = tokens.pop() {
-                        if let SPC(CLB()) = token {break}
+                        if let SPC(OPB()) = token {buf += 1}
+                        if let SPC(CLB()) = token {
+                            buf -= 1;
+                            if buf <= 0 {break}
+                        }
                         scopedtokens.push(token);
                     }
                     scopedtokens.reverse();
@@ -677,15 +824,26 @@ pub fn read_token(tokens: &mut Vec<Token>) -> Result<CreateDirective, CreateErro
                 CLB() => Err(CreateError { code: 3, message: "Unexpected closing bracket.".to_string() }),
                 OPS() => {
                     let mut values: Vec<MutableBuffer> = Vec::new();
+                    let mut buf = 0;
                     while let Some(token) = tokens.last() {
+                        if let SPC(OPS()) = token {break}
                         if let SPC(CLS()) = token {break}
                         values.push(read_mutable_buffer(tokens, None)?);
                     }
                     tokens.pop();
-                    println!("here");
                     Ok(CreateDirective::WRITE_ARR(values))
                 },
                 CLS() => Err(CreateError { code: 3, message: "Unexpected closing square bracket.".to_string() }),
+                GIA(n) => {
+                    let mutbuffer = read_mutable_buffer(tokens, None)?;
+                    println!("{:?}", mutbuffer);
+                    let gia = CreateDirective::READ_IAR(n, mutbuffer);
+                    if let Some(SPC(CLS())) = tokens.pop() {
+                        Ok(gia)
+                    } else {
+                        Err(CreateError { code: 3, message: "Expected a closing square bracket on index.".to_string() })
+                    }
+                },
             }
         },
         CFL(cfl) => {
@@ -744,6 +902,7 @@ pub fn read_mutable_buffer(tokens: &mut Vec<Token>, capacity: Option<i32>) -> Re
         match mutbuffer.last().unwrap() {
             READ_BUF()
             | READ_IBF(_)
+            | READ_IAR(_,_)
             | READ_NBF(_)
             | WRITE_BUF(_)
             | WRITE_ARR(_) => {
@@ -789,6 +948,7 @@ pub fn read_mutable_buffer_tokenless(directives: &mut Vec<CreateDirective>) -> R
             READ_BUF()
             | READ_IBF(_)
             | READ_NBF(_)
+            | READ_IAR(_,_)
             | WRITE_BUF(_) => {
                 'rec: loop {
                     match capacity.last_mut() {
