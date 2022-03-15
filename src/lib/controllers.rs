@@ -157,12 +157,13 @@ pub struct While {
 impl Controller for While {
     fn run(&mut self, environment: &mut Environment, _lossy: bool) -> CreateResult {
         
-        while match self.condition.clone().evaluate_clone(environment, false) {
-            CreateResult::Ok() => match environment.buffers.get_buf(0) {
-                Some(b) => *b,
-                None => return CreateResult::Err(CreateError { code: 3, message: "While condition did not return buffer, and no buffer was found.".to_string() })
+        while match self.condition.clone().eval_clone_return(environment, false) {
+            Ok(Some(v)) => match *v {
+                CreateAny::BUF(b) => b,
+                _ => return CreateResult::Err(CreateError { code: 3, message: "While controller condition did not return a buffer".to_string() }),
             },
-            CreateResult::Err(e) => return CreateResult::Err(e),
+            Ok(None) => return CreateResult::Err(CreateError { code: 3, message: "While controller conditions cannot be null".to_string() }),
+            Err(e) => return CreateResult::Err(e),
         } != 0. {
             self.mutbuffer.clone().evaluate_clone(environment, false);
         }

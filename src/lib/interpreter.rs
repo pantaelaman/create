@@ -1,5 +1,6 @@
 #![allow(non_camel_case_types)]
 use std::collections::{VecDeque, HashMap};
+use std::fmt::Debug;
 use std::rc::Rc;
 use std::cell::RefCell;
 use crate::lib::tokenizer::*;
@@ -59,6 +60,15 @@ impl MutableBuffer {
             None => Ok(None),
         }
     }
+
+    pub fn eval_clone_return(&mut self, environment: &mut Environment, lossy: bool) -> Result<Option<Box<CreateAny>>, CreateError> {
+        let mut exposed_buffers = PartitionedBuffers::new(environment.buffers);
+        self.evaluate_clone(&mut Environment { buffers: &mut exposed_buffers, writers: &mut Writers::new(), scope: environment.scope }, lossy);
+        match exposed_buffers.get_return() {
+            Some(v) => Ok(Some(v)),
+            None => Ok(None),
+        }
+    }
 }
 
 impl std::ops::Deref for MutableBuffer {
@@ -78,6 +88,7 @@ pub enum CreateDirective {
     READ_BUF(),
     READ_IBF(usize),
     READ_IAR(String, MutableBuffer),
+    READ_LIA(String, Vec<MutableBuffer>),
     READ_NBF(String),
     WRITE_INS(Rc<RefCell<dyn Instruction>>),
     WRITE_BUF(Buffer),
@@ -99,6 +110,7 @@ impl Clone for CreateDirective {
             READ_BUF() => READ_BUF(),
             READ_IBF(i) => READ_IBF(i.clone()),
             READ_IAR(n, m) => READ_IAR(n.clone(), m.clone()),
+            READ_LIA(n,m) => READ_LIA(n.clone(), m.clone()),
             READ_NBF(n) => READ_NBF(n.clone()),
             WRITE_INS(i) => WRITE_INS(i.borrow().clone_ins()),
             WRITE_BUF(b) => WRITE_BUF(b.clone()),
@@ -122,6 +134,7 @@ impl std::fmt::Debug for CreateDirective {
             READ_BUF() => "READ_BUF".to_string(),
             READ_IBF(i) => format!("READ_IBF({})", i),
             READ_IAR(n, m) => format!("READ_IAR({}, {:?})", n, m),
+            READ_LIA(n, m) => format!("READ_LIA({}, {:?})", n, m),
             READ_NBF(n) => format!("READ_NBF({})", n),
             WRITE_INS(_) => "WRITE_INS(...)".to_string(),
             WRITE_BUF(b) => format!("WRITE_BUF({})", b),
@@ -187,15 +200,15 @@ impl<'a> PartitionedBuffers<'a> {
         PartitionedBuffers { prev, new: Box::new(Buffers::new()) }
     }
 
-    pub fn get_return(&self) -> Option<Box<CreateAny>> {
+    pub fn get_return(self) -> Option<Box<CreateAny>> {
         self.new.get(0)
     }
 
-    pub fn get_return_buf(&self) -> Option<Box<Buffer>> {
+    pub fn get_return_buf(self) -> Option<Box<Buffer>> {
         self.new.get_buf(0)
     }
 
-    pub fn get_return_arr(&self) -> Option<Box<Array>> {
+    pub fn get_return_arr(self) -> Option<Box<Array>> {
         self.new.get_arr(0)
     }
 
@@ -306,7 +319,7 @@ impl<'a> Buffering for PartitionedBuffers<'a> {
 
     fn pop(&mut self) -> Option<CreateAny> {
         if self.new.is_empty() {
-            self.prev.pop()
+            None
         } else {
             self.new.pop()
         }
@@ -444,6 +457,39 @@ pub fn run_directive(directive: CreateDirective, tokens: &mut Vec<Token>, enviro
             };
             write(environment.buffers, environment.writers, val.clone(), lossy)
         },
+        READ_LIA(n, mut m) => {
+            let mut arr = match environment.scope.get(&n) {
+                Ok(v) => match v {
+                    CreateAny::ARR(a) => a.clone(),
+                    _ => return CreateResult::Err(CreateError { code: 3, message: format!("Identifier {} was not an array as expected", n) }),
+                },
+                Err(e) => return CreateResult::Err(e),
+            };
+            let mut val = None;
+            while let Some(mut mutbuffer) = m.pop() {
+                let index = match mutbuffer.eval_return(environment, lossy) {
+                    Ok(Some(v)) => match *v {
+                        CreateAny::BUF(b) => b,
+                        _ => return CreateResult::Err(CreateError { code: 3, message: "Index in long array index did not return buffer".to_string() })
+                    },
+                    Ok(None) => return CreateResult::Err(CreateError { code: 3, message: "Index in long array index cannot be null".to_string() }),
+                    Err(e) => return CreateResult::Err(e),
+                };
+                if let None = m.last() {
+                    val = arr.get(index as usize);
+                    break;
+                }
+                arr = match arr.get(index as usize) {
+                    Some(CreateAny::ARR(a)) => a.clone(),
+                    Some(_) => return CreateResult::Err(CreateError { code: 3, message: "Non-final index in long array index did not resolve to array".to_string() }),
+                    None => return CreateResult::Err(CreateError { code: 3, message: "Index in long array index could not be resolved".to_string() }),
+                };
+            }
+            write(environment.buffers, environment.writers, match val {
+                Some(v) => v.clone(),
+                None => return CreateResult::Err(CreateError { code: 3, message: "Long array index cannot return null value".to_string() })
+            }, lossy)
+        },
         READ_NBF(n) => write(environment.buffers, environment.writers, match environment.scope.get(&n) {
             Ok(v) => v.clone(),
             Err(e) => return CreateResult::Err(e),
@@ -452,13 +498,10 @@ pub fn run_directive(directive: CreateDirective, tokens: &mut Vec<Token>, enviro
         WRITE_ARR(m) => {
             let mut arr = Array::new();
             for mut mutbuffer in m {
-                match mutbuffer.evaluate(environment, lossy) {
-                    CreateResult::Ok() => (),
-                    CreateResult::Err(e) => return CreateResult::Err(e),
-                };
-                arr.push(match environment.buffers.get(0) {
-                    Some(v) => *v,
-                    None => return CreateResult::Err(CreateError { code: 3, message: "Arrays cannot contain null values.".to_string() })
+                arr.push(match mutbuffer.eval_return(environment, lossy) {
+                    Ok(Some(v)) => *v,
+                    Ok(None) => return CreateResult::Err(CreateError { code: 3, message: "Arrays cannot contain null values.".to_string() }),
+                    Err(e) => return CreateResult::Err(e),
                 });
             }
             write(environment.buffers, environment.writers, arr.into(), lossy)
@@ -612,20 +655,50 @@ pub fn run_directive_tokenless(directives: &mut Vec<CreateDirective>, environmen
             };
             environment.buffers.pop();
             write(environment.buffers, environment.writers, val.clone(), lossy)
-        }
+        },
+        READ_LIA(n, mut m) => {
+            let mut arr = match environment.scope.get(&n) {
+                Ok(v) => match v {
+                    CreateAny::ARR(a) => a.clone(),
+                    _ => return CreateResult::Err(CreateError { code: 3, message: format!("Identifier {} was not an array as expected", n) }),
+                },
+                Err(e) => return CreateResult::Err(e),
+            };
+            let mut val = None;
+            while let Some(mut mutbuffer) = m.pop() {
+                let index = match mutbuffer.eval_return(environment, lossy) {
+                    Ok(Some(v)) => match *v {
+                        CreateAny::BUF(b) => b,
+                        _ => return CreateResult::Err(CreateError { code: 3, message: "Index in long array index did not return buffer".to_string() })
+                    },
+                    Ok(None) => return CreateResult::Err(CreateError { code: 3, message: "Index in long array index cannot be null".to_string() }),
+                    Err(e) => return CreateResult::Err(e),
+                };
+                if let None = m.last() {
+                    val = arr.get(index as usize);
+                    break;
+                }
+                arr = match arr.get(index as usize) {
+                    Some(CreateAny::ARR(a)) => a.clone(),
+                    Some(_) => return CreateResult::Err(CreateError { code: 3, message: "Non-final index in long array index did not resolve to array".to_string() }),
+                    None => return CreateResult::Err(CreateError { code: 3, message: "Index in long array index could not be resolved".to_string() }),
+                };
+            }
+            write(environment.buffers, environment.writers, match val {
+                Some(v) => v.clone(),
+                None => return CreateResult::Err(CreateError { code: 3, message: "Long array index cannot return null value".to_string() })
+            }, lossy)
+        },
         WRITE_BUF(b) => {
             write(environment.buffers, environment.writers, b.into(), lossy)
         },
         WRITE_ARR(m) => {
             let mut arr = Array::new();
             for mut mutbuffer in m {
-                match mutbuffer.evaluate(environment, lossy) {
-                    CreateResult::Ok() => (),
-                    CreateResult::Err(e) => return CreateResult::Err(e),
-                };
-                arr.push(match environment.buffers.get(0) {
-                    Some(v) => *v,
-                    None => return CreateResult::Err(CreateError { code: 3, message: "Arrays cannot contain null values.".to_string() })
+                arr.push(match mutbuffer.eval_return(environment, lossy) {
+                    Ok(Some(v)) => *v,
+                    Ok(None) => return CreateResult::Err(CreateError { code: 3, message: "Arrays cannot contain null values.".to_string() }),
+                    Err(e) => return CreateResult::Err(e),
                 });
             }
             write(environment.buffers, environment.writers, arr.into(), lossy)
@@ -803,19 +876,9 @@ pub fn read_token(tokens: &mut Vec<Token>) -> Result<CreateDirective, CreateErro
                 GNB(n) => Ok(CreateDirective::READ_NBF(n)),
                 OPB() => {
                     let mut scopedbuffers: Vec<MutableBuffer> = Vec::new();
-                    let mut scopedtokens: Vec<Token> = Vec::new();
-                    let mut buf = 0;
-                    while let Some(token) = tokens.pop() {
-                        if let SPC(OPB()) = token {buf += 1}
-                        if let SPC(CLB()) = token {
-                            buf -= 1;
-                            if buf <= 0 {break}
-                        }
-                        scopedtokens.push(token);
-                    }
-                    scopedtokens.reverse();
-                    while let Some(_) = scopedtokens.last() {
-                        scopedbuffers.push(read_mutable_buffer(&mut scopedtokens, None)?)
+                    while let Some(token) = tokens.last() {
+                        if let SPC(CLS()) = token {tokens.pop(); break}
+                        scopedbuffers.push(read_mutable_buffer(tokens, None)?)
                     }
                     scopedbuffers.reverse();
                     let control = Scoped::new(scopedbuffers);
@@ -824,24 +887,27 @@ pub fn read_token(tokens: &mut Vec<Token>) -> Result<CreateDirective, CreateErro
                 CLB() => Err(CreateError { code: 3, message: "Unexpected closing bracket.".to_string() }),
                 OPS() => {
                     let mut values: Vec<MutableBuffer> = Vec::new();
-                    let mut buf = 0;
                     while let Some(token) = tokens.last() {
-                        if let SPC(OPS()) = token {break}
-                        if let SPC(CLS()) = token {break}
+                        if let SPC(CLS()) = token {tokens.pop(); break}
                         values.push(read_mutable_buffer(tokens, None)?);
                     }
-                    tokens.pop();
                     Ok(CreateDirective::WRITE_ARR(values))
                 },
                 CLS() => Err(CreateError { code: 3, message: "Unexpected closing square bracket.".to_string() }),
                 GIA(n) => {
                     let mutbuffer = read_mutable_buffer(tokens, None)?;
-                    println!("{:?}", mutbuffer);
-                    let gia = CreateDirective::READ_IAR(n, mutbuffer);
-                    if let Some(SPC(CLS())) = tokens.pop() {
-                        Ok(gia)
+                    if let Some(SPC(CLS())) = tokens.last() {
+                        tokens.pop();
+                        Ok(CreateDirective::READ_IAR(n, mutbuffer))
                     } else {
-                        Err(CreateError { code: 3, message: "Expected a closing square bracket on index.".to_string() })
+                        let mut mutbuffers = Vec::new();
+                        mutbuffers.push(mutbuffer);
+                        while let Some(token) = tokens.last() {
+                            if let SPC(CLS()) = token {tokens.pop(); break}
+                            mutbuffers.push(read_mutable_buffer(tokens, None)?);
+                        }
+                        mutbuffers.reverse();
+                        Ok(CreateDirective::READ_LIA(n, mutbuffers))
                     }
                 },
             }
