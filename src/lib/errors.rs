@@ -17,6 +17,9 @@ impl std::fmt::Display for CreateError {
             7 => "Tried to write incompatible type.",
             8 => "Tried to print a floating point char.",
             9 => "Improper condition for control flow statement.",
+            10 => "Mistyped argument for function.",
+            11 => "Unexpected break statement.",
+            12 => "Unexpected return statement.",
             usize::MAX => "Something went wrong.",
             _ => "Huh, we weren't able to diagnose the issue, but there was an error somewhere in here.",
         };

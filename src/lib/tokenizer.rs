@@ -48,10 +48,14 @@ pub enum Special {
     SLA(String),
     GIA(String),
     GNB(String),
+    FNC(String),
+    FUN(String),
     OPB(),
     CLB(),
     OPS(),
     CLS(),
+    OPR(),
+    CLR(),
 }
 
 #[derive(Debug, Clone)]
@@ -62,6 +66,7 @@ pub enum ControlFlow {
     FRN,
     WHL,
     BRK,
+    RTN,
 }
 
 pub fn tokenize(data: &str) -> Result<Vec<Token>, errors::CreateError> {
@@ -112,12 +117,16 @@ pub fn tokenize(data: &str) -> Result<Vec<Token>, errors::CreateError> {
                 &"forin" => CFL(FRN),
                 &"while" => CFL(WHL),
                 &"break" => CFL(BRK),
+                &"return" => CFL(RTN),
                 // Scoping
                 &"{" => SPC(OPB()),
                 &"}" => SPC(CLB()),
                 // Array
                 &"[" => SPC(OPS()),
                 &"]" => SPC(CLS()),
+                // Function
+                &"(" => SPC(OPR()),
+                &")" => SPC(CLR()),
                 // Buffer
                 &";" => SPC(RMB()),
                 &"~" => SPC(BUF()),
@@ -132,8 +141,10 @@ pub fn tokenize(data: &str) -> Result<Vec<Token>, errors::CreateError> {
                                         SPC(GNB(raw_token[1..].to_string()))
                                     } else if Regex::new(r"^\w+\[$").unwrap().is_match(&raw_token[1..]) {
                                         SPC(GIA(raw_token[1..(raw_token.len()-1)].to_string()))
+                                    } else if Regex::new(r"^\w+\($").unwrap().is_match(&raw_token[1..]) {
+                                        SPC(FNC(raw_token[1..(raw_token.len()-1)].to_string()))
                                     } else {
-                                        return Err(errors::CreateError{ code: 2, message: format!("Could not read named or indexed buffer at line {}, char {}", line, chr) })
+                                        return Err(errors::CreateError{ code: 2, message: format!("Could not read name or index of buffer at line {}, char {}", line, chr) });
                                     }
                                 }
                             },
@@ -142,6 +153,8 @@ pub fn tokenize(data: &str) -> Result<Vec<Token>, errors::CreateError> {
                                     SPC(SNB(raw_token[1..].to_string()))
                                 } else if Regex::new(r"^\[\]\w+$").unwrap().is_match(&raw_token[1..]) {
                                     SPC(SNA(raw_token[3..].to_string()))
+                                } else if Regex::new(r"^\(\)\w+$").unwrap().is_match(&raw_token[1..]) {
+                                    SPC(FUN(raw_token[3..].to_string()))
                                 } else {
                                     return Err(errors::CreateError{ code: 2, message: format!("Invalid name for setting a named buffer at line {}, char {}", line, chr)})
                                 }

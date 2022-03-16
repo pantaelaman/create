@@ -91,7 +91,10 @@ impl Controller for For {
             };
             match self.mutbuffer.clone().evaluate_clone(&mut Environment { buffers: environment.buffers, writers: environment.writers, scope: &mut scope }, false) {
                 CreateResult::Ok() => (),
-                CreateResult::Err(e) => return CreateResult::Err(e),
+                CreateResult::Err(e) => match e.code {
+                    11 => break,
+                    _ => return CreateResult::Err(e),
+                }
             };
         }
         CreateResult::Ok()
@@ -132,7 +135,10 @@ impl Controller for ForIn {
             }
             match self.mutbuffer.clone().evaluate_clone(&mut Environment { buffers: environment.buffers, writers: environment.writers, scope: &mut scope }, lossy) {
                 CreateResult::Ok() => (),
-                CreateResult::Err(e) => return CreateResult::Err(e),
+                CreateResult::Err(e) => match e.code {
+                    11 => break,
+                    _ => return CreateResult::Err(e)
+                },
             }
         }
         CreateResult::Ok()
@@ -165,7 +171,13 @@ impl Controller for While {
             Ok(None) => return CreateResult::Err(CreateError { code: 3, message: "While controller conditions cannot be null".to_string() }),
             Err(e) => return CreateResult::Err(e),
         } != 0. {
-            self.mutbuffer.clone().evaluate_clone(environment, false);
+            match self.mutbuffer.clone().evaluate_clone(environment, false) {
+                CreateResult::Ok() => (),
+                CreateResult::Err(e) => match e.code {
+                    11 => break,
+                    _ => return CreateResult::Err(e),
+                }
+            }
         }
         CreateResult::Ok()
     }

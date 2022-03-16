@@ -10,10 +10,10 @@ pub struct BinaryOp {
 }
 
 impl Instruction for BinaryOp {
-    fn evaluate(&mut self, _lossy: bool) -> Result<Buffer, CreateError> {
+    fn evaluate(&mut self, _: &mut Environment, _: bool) -> Result<CreateAny, CreateError> {
         if let Some(l) = self.left {
             if let Some(r) = self.right {
-                return Ok((self.op)(l,r));
+                return Ok(CreateAny::BUF((self.op)(l,r)));
             }
         }
         Err(CreateError { code: 5, message: "There was an unfilled value within a Binary Operator".to_string() })
@@ -68,9 +68,9 @@ pub struct UnaryOp {
 }
 
 impl Instruction for UnaryOp {
-    fn evaluate(&mut self, _lossy: bool) -> Result<Buffer, CreateError> {
+    fn evaluate(&mut self, _: &mut Environment, _: bool) -> Result<CreateAny, CreateError> {
         if let Some(v) = self.value {
-            Ok((self.op)(v))
+            Ok(CreateAny::BUF((self.op)(v)))
         } else {
             Err(CreateError { code: 5, message: "There was an unfilled value in a Unary Operator".to_string() })
         }
