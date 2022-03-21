@@ -80,16 +80,18 @@ impl Controller for For {
             CreateResult::Ok() => (),
             CreateResult::Err(e) => return CreateResult::Err(e),
         }
-        let mut scope = Scope::new(Box::new(environment.scope));        
-        for num in 0..(match environment.buffers.get_buf(0) {
+        let mut scope = Scope::new(environment.scope);
+        let iter_num = match environment.buffers.get_buf(0) {
             Some(b) => b,
             None => return CreateResult::Err(CreateError { code: 3, message: "For loop condition did not return value, and no value was found in buffer".to_string() }),
-        }.trunc() as i32) {
+        }.trunc() as i32;
+        let mut env = Environment { buffers: environment.buffers, writers: environment.writers, scope: &mut scope };
+        for num in 0..iter_num {
             match &self.identifier {
-                Some(i) => {scope.insert_locally(i.clone(), CreateAny::BUF(num as Buffer));},
+                Some(i) => {env.scope.insert_locally(i.clone(), CreateAny::BUF(num as Buffer));},
                 None => (),
             };
-            match self.mutbuffer.clone().evaluate_clone(&mut Environment { buffers: environment.buffers, writers: environment.writers, scope: &mut scope }, false) {
+            match self.mutbuffer.clone().evaluate_clone(&mut env, false) {
                 CreateResult::Ok() => (),
                 CreateResult::Err(e) => match e.code {
                     11 => break,
@@ -127,19 +129,21 @@ impl Controller for ForIn {
             Some(a) => *a,
             None => return CreateResult::Err(CreateError { code: 3, message: "ForIn loop condition did not return array, and array was found in buffer".to_string() })
         };
-        let mut scope = Scope::new(Box::new(environment.scope));
+        let mut scope = Scope::new(environment.scope);
+        let mut env = Environment { buffers: environment.buffers, writers: environment.writers, scope: &mut scope };
         for value in array {
             match &self.identifier {
-                Some(i) => {scope.insert_locally(i.clone(), value);},
+                Some(i) => {env.scope.insert_locally(i.clone(), value);},
                 None => (),
             }
-            match self.mutbuffer.clone().evaluate_clone(&mut Environment { buffers: environment.buffers, writers: environment.writers, scope: &mut scope }, lossy) {
+            match self.mutbuffer.clone().evaluate_clone(&mut env, lossy) {
                 CreateResult::Ok() => (),
                 CreateResult::Err(e) => match e.code {
                     11 => break,
                     _ => return CreateResult::Err(e)
                 },
             }
+            env.writers.clear();
         }
         CreateResult::Ok()
     }
@@ -199,12 +203,14 @@ pub struct Scoped {
 
 impl Controller for Scoped {
     fn run(&mut self, environment: &mut Environment, lossy: bool) -> CreateResult {
-        let mut scope = Scope::new(Box::new(environment.scope));
+        let mut scope = Scope::new(environment.scope);
+        let mut environment = Environment { buffers: environment.buffers, writers: &mut Writers::new(), scope: &mut scope };
         while let Some(mut mutbuffer) = self.mutbuffers.pop() {
-            match mutbuffer.evaluate(&mut Environment { buffers: environment.buffers, writers: environment.writers, scope: &mut scope }, lossy) {
+            match mutbuffer.evaluate(&mut environment, lossy) {
                 CreateResult::Ok() => (),
                 CreateResult::Err(e) => return CreateResult::Err(e),
             }
+            environment.writers.clear();
         }
         CreateResult::Ok()
     }

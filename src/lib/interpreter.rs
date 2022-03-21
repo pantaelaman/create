@@ -8,9 +8,11 @@ use super::errors::*;
 use super::instructions::*;
 use super::controllers::*;
 use super::functions::*;
+use super::utils::*;
 
 pub type Buffer = f32;
 pub type Array = Vec<CreateAny>;
+pub type Identifier = Vec<String>;
 
 impl Into<CreateAny> for Buffer {
     fn into(self) -> CreateAny {
@@ -24,12 +26,28 @@ impl Into<CreateAny> for Array {
     }
 }
 
+impl Into<CreateAny> for Function {
+    fn into(self) -> CreateAny {
+        CreateAny::FUN(self)
+    }
+}
+
+impl Into<CreateAny> for PrimitiveScope {
+    fn into(self) -> CreateAny {
+        CreateAny::SCP(self)
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct MutableBuffer(Vec<CreateDirective>);
 
 impl MutableBuffer {
     pub fn new() -> Self {
         MutableBuffer(Vec::new())
+    }
+
+    pub fn new_from(vec: Vec<CreateDirective>) -> Self {
+        MutableBuffer(vec)
     }
 
     pub fn evaluate(&mut self, environment: &mut Environment, lossy: bool) -> CreateResult {
@@ -72,7 +90,7 @@ impl MutableBuffer {
     }
 }
 
-impl std::ops::Deref for MutableBuffer {
+impl<'a> std::ops::Deref for MutableBuffer {
     type Target = Vec<CreateDirective>;
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -88,19 +106,22 @@ impl std::ops::DerefMut for MutableBuffer {
 pub enum CreateDirective {
     READ_BUF(),
     READ_IBF(usize),
-    READ_IAR(String, MutableBuffer),
-    READ_LIA(String, Vec<MutableBuffer>),
-    READ_NBF(String),
+    READ_IAR(Identifier, MutableBuffer),
+    READ_LIA(Identifier, Vec<MutableBuffer>),
+    READ_NBF(Identifier),
     WRITE_INS(Rc<RefCell<dyn Instruction>>),
     WRITE_BUF(Buffer),
     WRITE_ARR(Vec<MutableBuffer>),
-    WRITE_NBF(String),
-    WRITE_NAR(String),
-    WRITE_NFN(String, Function),
-    WRITE_GNB(String),
-    WRITE_GNA(String),
-    WRITE_LNB(String),
-    WRITE_LNA(String),
+    WRITE_FUN(Function),
+    WRITE_SCP(ScopePrototype),
+    WRITE_NBF(Identifier),
+    WRITE_NAR(Identifier),
+    WRITE_NSC(Identifier),
+    WRITE_NFN(Identifier),
+    WRITE_GNB(Identifier),
+    WRITE_GNA(Identifier),
+    WRITE_LNB(Identifier),
+    WRITE_LNA(Identifier),
     CONTROL(Rc<RefCell<dyn Controller>>),
     BREAK(),
     RETURN(),
@@ -119,9 +140,12 @@ impl Clone for CreateDirective {
             WRITE_INS(i) => WRITE_INS(i.borrow().clone_ins()),
             WRITE_BUF(b) => WRITE_BUF(b.clone()),
             WRITE_ARR(a) => WRITE_ARR(a.clone()),
+            WRITE_FUN(f) => WRITE_FUN(f.clone()),
+            WRITE_SCP(s) => WRITE_SCP(s.clone()),
             WRITE_NBF(n) => WRITE_NBF(n.clone()),
             WRITE_NAR(n) => WRITE_NAR(n.clone()),
-            WRITE_NFN(n, f) => WRITE_NFN(n.clone(), f.clone()),
+            WRITE_NSC(n) => WRITE_NSC(n.clone()),
+            WRITE_NFN(n) => WRITE_NFN(n.clone()),
             WRITE_GNB(n) => WRITE_GNB(n.clone()),
             WRITE_GNA(n) => WRITE_GNA(n.clone()),
             WRITE_LNB(n) => WRITE_LNB(n.clone()),
@@ -140,19 +164,22 @@ impl std::fmt::Debug for CreateDirective {
         let string = match self {
             READ_BUF() => "READ_BUF".to_string(),
             READ_IBF(i) => format!("READ_IBF({})", i),
-            READ_IAR(n, m) => format!("READ_IAR({}, {:?})", n, m),
-            READ_LIA(n, m) => format!("READ_LIA({}, {:?})", n, m),
-            READ_NBF(n) => format!("READ_NBF({})", n),
+            READ_IAR(n, m) => format!("READ_IAR({:?}, {:?})", n, m),
+            READ_LIA(n, m) => format!("READ_LIA({:?}, {:?})", n, m),
+            READ_NBF(n) => format!("READ_NBF({:?})", n),
             WRITE_INS(_) => "WRITE_INS(...)".to_string(),
-            WRITE_BUF(b) => format!("WRITE_BUF({})", b),
+            WRITE_BUF(b) => format!("WRITE_BUF({:?})", b),
             WRITE_ARR(a) => format!("WRITE_ARR({:?})", a),
-            WRITE_NBF(n) => format!("WRITE_NBF({})", n),
-            WRITE_NAR(n) => format!("WRITE_NAR({})", n),
-            WRITE_NFN(n, f) => format!("WRITE_NFN({}, {:?})", n, f),
-            WRITE_LNB(n) => format!("WRITE_LNB({})", n),
-            WRITE_LNA(n) => format!("WRITE_LNA({})", n),
-            WRITE_GNB(n) => format!("WRITE_GNB({})", n),
-            WRITE_GNA(n) => format!("WRITE_GNA({})", n),
+            WRITE_FUN(f) => format!("WRITE_FUN({:?})", f),
+            WRITE_SCP(s) => format!("WRITE_SCP({:?})", s),
+            WRITE_NBF(n) => format!("WRITE_NBF({:?})", n),
+            WRITE_NAR(n) => format!("WRITE_NAR({:?})", n),
+            WRITE_NSC(n) => format!("WRITE_NSC({:?})", n),
+            WRITE_NFN(n) => format!("WRITE_NFN({:?})", n),
+            WRITE_LNB(n) => format!("WRITE_LNB({:?})", n),
+            WRITE_LNA(n) => format!("WRITE_LNA({:?})", n),
+            WRITE_GNB(n) => format!("WRITE_GNB({:?})", n),
+            WRITE_GNA(n) => format!("WRITE_GNA({:?})", n),
             CONTROL(_) => "CONTROL(...)".to_string(),
             BREAK() => "BREAK".to_string(),
             RETURN() => "RETURN".to_string(),
@@ -167,6 +194,7 @@ pub enum CreateType {
     BUF,
     ARR,
     FUN,
+    SCP,
     NUL,
 }
 
@@ -176,18 +204,46 @@ impl CreateType {
             (CreateType::BUF, CreateAny::BUF(_)) => true,
             (CreateType::ARR, CreateAny::ARR(_)) => true,
             (CreateType::FUN, CreateAny::FUN(_)) => true,
+            (CreateType::SCP, CreateAny::SCP(_)) => true,
             (CreateType::NUL, CreateAny::NUL()) => true,
             _ => false
         }
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub enum CreateAny {
     BUF(Buffer),
     ARR(Array),
     FUN(Function),
+    SCP(PrimitiveScope),
     NUL(),
+}
+
+impl CreateAny {
+    pub fn get_type(&self) -> CreateType {
+        use CreateAny::*;
+        match self {
+            BUF(..) => CreateType::BUF,
+            ARR(..) => CreateType::ARR,
+            FUN(..) => CreateType::FUN,
+            SCP(..) => CreateType::SCP,
+            NUL(..) => CreateType::NUL,
+        }
+    }
+}
+
+impl std::fmt::Debug for CreateAny {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
+        use CreateAny::*;
+        match self {
+            BUF(b) => write!(fmt, "BUF({})", b),
+            ARR(a) => write!(fmt, "ARR({:?})", a),
+            FUN(f) => write!(fmt, "FUN({:?})", f),
+            SCP(s) => write!(fmt, "SCP({:?})", s),
+            NUL() => write!(fmt, "NUL"),
+        }
+    }
 }
 
 pub trait Instruction {
@@ -203,10 +259,12 @@ pub trait Instruction {
 pub trait Controller {
     fn run(&mut self, environment: &mut Environment, lossy: bool) -> CreateResult;
     fn clone_cfl(&self) -> Rc<RefCell<dyn Controller>>;
+    fn return_count(&self) -> usize {0}
 }
 
 pub trait Scoping {
-    fn get(&self, key: &String) -> Result<&CreateAny, CreateError>;
+    fn get(&mut self, key: &String) -> Result<&mut CreateAny, CreateError>;
+    fn get_immut(&self, key: &String) -> Result<&CreateAny, CreateError>;
     fn insert(&mut self, key: String, value: CreateAny) -> Option<CreateAny>;
     fn insert_globally(&mut self, key: String, value: CreateAny) -> Option<CreateAny> {
         self.insert(key, value)
@@ -216,11 +274,45 @@ pub trait Scoping {
     }
     fn contains_key(&self, key: &String) -> bool;
     fn scope_type(&self) -> &str {"unknown"}
+    fn print_str(&self) -> &str {"scope"}
 }
 
-pub type Buffers = VecDeque<CreateAny>;
+pub type Buffers<'a> = VecDeque<CreateAny>;
 pub type Writers = VecDeque<Rc<RefCell<dyn Instruction>>>;
 pub type PrimitiveScope = HashMap<String, CreateAny>;
+
+#[derive(Clone, Debug)]
+pub struct ScopePrototype {
+    mutbuffers: HashMap<String, (CreateType, MutableBuffer)>,
+}
+
+impl ScopePrototype {
+    pub fn new() -> Self {
+        ScopePrototype { mutbuffers: HashMap::new() }
+    }
+
+    pub fn insert(&mut self, n: String, m: MutableBuffer, t: CreateType) {
+        self.mutbuffers.insert(n, (t, m));
+    }
+
+    pub fn construct(self, environment: &mut Environment, lossy: bool) -> Result<PrimitiveScope, CreateError> {
+        let mut scope = PrimitiveScope::new();
+        for (n, mut m) in self.mutbuffers {
+            scope.insert(n, match m.1.eval_return(environment, lossy) {
+                Ok(Some(v)) => {
+                    if m.0.matches(&v) {
+                        *v
+                    } else {
+                        return Err(CreateError { code: 3, message: "Scope values must be of appropriate type".to_string() });
+                    }
+                },
+                Ok(None) => return Err(CreateError { code: 3, message: "Scope values cannot be none".to_string() }),
+                Err(e) => return Err(e),
+            });
+        }
+        Ok(scope)
+    }
+}
 
 pub struct PartitionedBuffers<'a> {
     prev: &'a mut dyn Buffering,
@@ -269,7 +361,7 @@ pub trait Buffering {
     fn is_empty(&self) -> bool;
 }
 
-impl Buffering for Buffers {
+impl Buffering for Buffers<'_> {
     fn get(&self, index: usize) -> Option<Box<CreateAny>> {
         match self.get(index) {
             Some(b) => Some(Box::new(b.clone())),
@@ -374,21 +466,27 @@ pub struct Environment<'a> {
 }
 
 pub struct Scope<'a> {
-    parent: Box<&'a mut dyn Scoping>,
+    parent: &'a mut dyn Scoping,
     scope: PrimitiveScope,
 }
 
 impl<'a> Scope<'a> {
-    pub fn new(parent: Box<&'a mut dyn Scoping>) -> Self {
+    pub fn new(parent: &'a mut dyn Scoping) -> Self {
         Scope { parent, scope: PrimitiveScope::new() }
     }
 }
 
-impl<'a> Scoping for Scope<'a> {
-    fn get(&self, key: &String) -> Result<&CreateAny, CreateError> {
-        match self.scope.get(key) {
+impl Scoping for Scope<'_> {
+    fn get(&mut self, key: &String) -> Result<&mut CreateAny, CreateError> {
+        match self.scope.get_mut(key) {
             Some(v) => Ok(v),
             None => self.parent.get(key),
+        }
+    }
+    fn get_immut(&self, key: &String) -> Result<&CreateAny, CreateError> {
+        match self.scope.get(key) {
+            Some(v) => Ok(v),
+            None => self.parent.get_immut(key),
         }
     }
     fn insert(&mut self, key: String, value: CreateAny) -> Option<CreateAny> {
@@ -411,11 +509,11 @@ impl<'a> Scoping for Scope<'a> {
 }
 
 impl Scoping for PrimitiveScope {
-    fn get(&self, key: &String) -> Result<&CreateAny, CreateError> {
-        match self.get(key) {
-            Some(v) => Ok(v),
-            _ => Err(CreateError { code: 6, message: format!("Could not read buffer from named buffer {}", key) }),
-        }
+    fn get(&mut self, key: &String) -> Result<&mut CreateAny, CreateError> {
+        self.get_mut(key).ok_or(CreateError { code: 6, message: format!("Could not read buffer from named buffer {}", key) })
+    }
+    fn get_immut(&self, key: &String) -> Result<&CreateAny, CreateError> {
+        self.get(key).ok_or(CreateError { code: 6, message: format!("Could not read buffer from named buffer {}", key) })
     }
     fn insert(&mut self, key: String, value: CreateAny) -> Option<CreateAny> {
         self.insert(key, value)
@@ -424,6 +522,75 @@ impl Scoping for PrimitiveScope {
         self.contains_key(key)
     }
     fn scope_type(&self) -> &str {"primitive"}
+}
+
+pub fn resolve_identifier<'a>(in_identifier: &Identifier, scope: &'a mut dyn Scoping) -> Result<&'a mut CreateAny, CreateError> { 
+    let mut identifier = in_identifier.clone();
+    let mut current = scope;
+    while let Some(name) = identifier.pop() {
+        if let None = identifier.last() {
+            return Ok(current.get(&name)?);
+        }
+        match current.get(&name)? {
+            CreateAny::SCP(s) => current = s,
+            _ => return Err(CreateError { code: 3, message: "Identifier in long identifier did not return scope".to_string() }),
+        }
+    }
+    Err(CreateError { code: 13, message: format!("{:?} did not return an appropriate value.", in_identifier)})
+}
+
+pub fn resolve_identifier_immut<'a>(in_identifier: &Identifier, scope: &'a dyn Scoping) -> Result<&'a CreateAny, CreateError> { 
+    let mut identifier = in_identifier.clone();
+    let mut current = scope;
+    while let Some(name) = identifier.pop() {
+        if let None = identifier.last() {
+            return Ok(current.get_immut(&name)?);
+        }
+        match current.get_immut(&name)? {
+            CreateAny::SCP(s) => current = s,
+            _ => return Err(CreateError { code: 3, message: "Identifier in long identifier did not return scope".to_string() }),
+        }
+    }
+    Err(CreateError { code: 13, message: format!("{:?} did not return an appropriate value.", in_identifier)})
+}
+
+pub fn insert_at_identifier<'a>(mut identifier: Identifier, val: CreateAny, scope: &'a mut dyn Scoping) -> Result<Option<CreateAny>, CreateError> {
+    let final_identifier = identifier.pop().unwrap();
+    
+    if identifier.len() == 0 {
+        Ok(scope.insert(final_identifier, val))
+    } else {
+        match resolve_identifier(&identifier, scope)? {
+            CreateAny::SCP(s) => Ok(s.insert(final_identifier, val)),
+            _ => Err(CreateError { code: 3, message: "Identifier could not be resolved.".to_string() }),
+        }
+    }
+}
+
+pub fn insert_at_identifier_globally<'a>(mut identifier: Identifier, val: CreateAny, scope: &'a mut dyn Scoping) -> Result<Option<CreateAny>, CreateError> {
+    let final_identifier = identifier.pop().unwrap();
+    
+    if identifier.len() == 0 {
+        Ok(scope.insert_globally(final_identifier, val))
+    } else {
+        match resolve_identifier(&identifier, scope)? {
+            CreateAny::SCP(s) => Ok(s.insert_globally(final_identifier, val)),
+            _ => Err(CreateError { code: 3, message: "Identifier could not be resolved.".to_string() }),
+        }
+    }
+}
+
+pub fn insert_at_identifier_locally<'a>(mut identifier: Identifier, val: CreateAny, scope: &'a mut dyn Scoping) -> Result<Option<CreateAny>, CreateError> {
+    let final_identifier = identifier.pop().unwrap();
+    
+    if identifier.len() == 0 {
+        Ok(scope.insert_locally(final_identifier, val))
+    } else {
+        match resolve_identifier(&identifier, scope)? {
+            CreateAny::SCP(s) => Ok(s.insert_locally(final_identifier, val)),
+            _ => Err(CreateError { code: 3, message: "Identifier could not be resolved.".to_string() }),
+        }
+    }
 }
 
 pub fn write(environment: &mut Environment, val: CreateAny, lossy: bool) -> CreateResult {
@@ -480,22 +647,22 @@ pub fn run_directive(directive: CreateDirective, tokens: &mut Vec<Token>, enviro
                 Err(e) => return CreateResult::Err(e),
                 _ => return CreateResult::Err(CreateError { code: 3, message: "Index of array did not return buffer, and none was found.".to_string() }),
             };
-            let arr = match environment.scope.get(&n) {
+            let arr = match resolve_identifier(&n, environment.scope) {
                 Ok(CreateAny::ARR(a)) => a,
-                Ok(_) => return CreateResult::Err(CreateError { code: 3, message: format!("Identifier {} was not an array as expected.", n) }),
+                Ok(_) => return CreateResult::Err(CreateError { code: 3, message: format!("Identifier {:?} was not an array as expected.", n) }),
                 Err(e) => return CreateResult::Err(e),
             };
             let val = match arr.get(index as usize) {
                 Some(v) => v,
-                None => return CreateResult::Err(CreateError { code: 3, message: format!("Value at index {} in array {} was outside of the array", index, n) })
+                None => return CreateResult::Err(CreateError { code: 3, message: format!("Value at index {} in array {:?} was outside of the array", index, n) })
             }.clone();
             write(environment, val, lossy)
         },
         READ_LIA(n, mut m) => {
-            let mut arr = match environment.scope.get(&n) {
+            let mut arr = match resolve_identifier(&n, environment.scope) {
                 Ok(v) => match v {
                     CreateAny::ARR(a) => a.clone(),
-                    _ => return CreateResult::Err(CreateError { code: 3, message: format!("Identifier {} was not an array as expected", n) }),
+                    _ => return CreateResult::Err(CreateError { code: 3, message: format!("Identifier {:?} was not an array as expected", n) }),
                 },
                 Err(e) => return CreateResult::Err(e),
             };
@@ -524,10 +691,13 @@ pub fn run_directive(directive: CreateDirective, tokens: &mut Vec<Token>, enviro
                 None => return CreateResult::Err(CreateError { code: 3, message: "Long array index cannot return null value".to_string() })
             }, lossy)
         },
-        READ_NBF(n) => write(environment, match environment.scope.get(&n) {
-            Ok(v) => v.clone(),
-            Err(e) => return CreateResult::Err(e),
-        }, lossy),
+        READ_NBF(n) => {
+            let val = match resolve_identifier(&n, environment.scope) {
+                Ok(v) => v.clone(),
+                Err(e) => return CreateResult::Err(e),
+            };
+            write(environment, val, lossy)
+        },
         WRITE_BUF(b) => write(environment, b.into(), lossy),
         WRITE_ARR(m) => {
             let mut arr = Array::new();
@@ -539,7 +709,17 @@ pub fn run_directive(directive: CreateDirective, tokens: &mut Vec<Token>, enviro
                 });
             }
             write(environment, arr.into(), lossy)
-        }
+        },
+        WRITE_SCP(s) => {
+            let val = match s.construct(environment, lossy) {
+                Ok(p) => p,
+                Err(e) => return CreateResult::Err(e),
+            };
+            write(environment, val.into(), lossy)
+        },
+        WRITE_FUN(f) => {
+            write(environment, f.into(), lossy)
+        },
         WRITE_INS(i) => {
             environment.writers.push_front(i);
             CreateResult::Ok()
@@ -553,11 +733,10 @@ pub fn run_directive(directive: CreateDirective, tokens: &mut Vec<Token>, enviro
                 CreateResult::Ok() => (),
                 CreateResult::Err(e) => return CreateResult::Err(e),
             }
-            environment.scope.insert(n, match environment.buffers.get_buf(0) {
+            insert_at_identifier(n, match environment.buffers.get_buf(0) {
                 Some(b) => CreateAny::BUF(*b),
                 None => return CreateResult::Err(CreateError { code: 3, message: "Named buffer was attempted to be set to null.".to_string() })
-            });
-            CreateResult::Ok()
+            }, environment.scope).into()
         },
         WRITE_NAR(n) => {
             let mut mutbuffer = match read_mutable_buffer(tokens, Some(1)) {
@@ -568,15 +747,44 @@ pub fn run_directive(directive: CreateDirective, tokens: &mut Vec<Token>, enviro
                 CreateResult::Ok() => (),
                 CreateResult::Err(e) => return CreateResult::Err(e),
             }
-            environment.scope.insert(n, match environment.buffers.get_arr(0) {
+            insert_at_identifier(n, match environment.buffers.get_arr(0) {
                 Some(a) => CreateAny::ARR(*a),
                 None => return CreateResult::Err(CreateError { code: 3, message: "Named buffer was attempted to be set to null.".to_string() })
-            });
-            CreateResult::Ok()
+            }, environment.scope).into()
         },
-        WRITE_NFN(n, f) => {
-            environment.scope.insert(n, CreateAny::FUN(f));
-            CreateResult::Ok()
+        WRITE_NFN(n) => {
+           let mut mutbuffer = match read_mutable_buffer(tokens, None) {
+                Ok(v) => v,
+                Err(e) => return CreateResult::Err(e),
+            };
+
+            let scope = match mutbuffer.eval_return(environment, lossy) {
+                Ok(Some(v)) => match *v {
+                    CreateAny::FUN(f) => f,
+                    _ => return CreateResult::Err(CreateError { code: 3, message: "Tried to set a named function to a non-function value".to_string() }),
+                },
+                Ok(None) => return CreateResult::Err(CreateError { code: 3, message: "Tried to set a named function to a none value".to_string() }),
+                Err(e) => return CreateResult::Err(e),
+            };
+
+            insert_at_identifier(n, CreateAny::FUN(scope), environment.scope).into()
+        }
+        WRITE_NSC(n) => {
+            let mut mutbuffer = match read_mutable_buffer(tokens, None) {
+                Ok(v) => v,
+                Err(e) => return CreateResult::Err(e),
+            };
+
+            let scope = match mutbuffer.eval_return(environment, lossy) {
+                Ok(Some(v)) => match *v {
+                    CreateAny::SCP(s) => s,
+                    _ => return CreateResult::Err(CreateError { code: 3, message: "Tried to set a named scope to a non-scope value".to_string() }),
+                },
+                Ok(None) => return CreateResult::Err(CreateError { code: 3, message: "Tried to set a named scope to a none value".to_string() }),
+                Err(e) => return CreateResult::Err(e),
+            };
+
+            insert_at_identifier(n, CreateAny::SCP(scope), environment.scope).into()
         },
         WRITE_GNB(n) => {
             let mut mutbuffer = match read_mutable_buffer(tokens, Some(1)) {
@@ -587,11 +795,10 @@ pub fn run_directive(directive: CreateDirective, tokens: &mut Vec<Token>, enviro
                 CreateResult::Ok() => (),
                 CreateResult::Err(e) => return CreateResult::Err(e),
             }
-            environment.scope.insert_globally(n, match environment.buffers.get_buf(0) {
+            insert_at_identifier_globally(n, match environment.buffers.get_buf(0) {
                 Some(b) => CreateAny::BUF(*b),
                 None => return CreateResult::Err(CreateError { code: 3, message: "Named buffer was attempted to be set to null.".to_string() })
-            });
-            CreateResult::Ok()
+            }, environment.scope).into()
         },
         WRITE_GNA(n) => {
             let mut mutbuffer = match read_mutable_buffer(tokens, Some(1)) {
@@ -602,11 +809,10 @@ pub fn run_directive(directive: CreateDirective, tokens: &mut Vec<Token>, enviro
                 CreateResult::Ok() => (),
                 CreateResult::Err(e) => return CreateResult::Err(e),
             }
-            environment.scope.insert_globally(n, match environment.buffers.get_arr(0) {
+            insert_at_identifier_globally(n, match environment.buffers.get_arr(0) {
                 Some(a) => CreateAny::ARR(*a),
                 None => return CreateResult::Err(CreateError { code: 3, message: "Named buffer was attempted to be set to null.".to_string() })
-            });
-            CreateResult::Ok()
+            }, environment.scope).into()
         },
         WRITE_LNB(n) => {
             let mut mutbuffer = match read_mutable_buffer(tokens, Some(1)) {
@@ -617,11 +823,10 @@ pub fn run_directive(directive: CreateDirective, tokens: &mut Vec<Token>, enviro
                 CreateResult::Ok() => (),
                 CreateResult::Err(e) => return CreateResult::Err(e),
             }
-            environment.scope.insert_locally(n, match environment.buffers.get_buf(0) {
+            insert_at_identifier_locally(n, match environment.buffers.get_buf(0) {
                 Some(b) => CreateAny::BUF(*b),
                 None => return CreateResult::Err(CreateError { code: 3, message: "Named buffer was attempted to be set to null.".to_string() })
-            });
-            CreateResult::Ok()
+            }, environment.scope).into()
         },
         WRITE_LNA(n) => {
             let mut mutbuffer = match read_mutable_buffer(tokens, Some(1)) {
@@ -632,11 +837,10 @@ pub fn run_directive(directive: CreateDirective, tokens: &mut Vec<Token>, enviro
                 CreateResult::Ok() => (),
                 CreateResult::Err(e) => return CreateResult::Err(e),
             }
-            environment.scope.insert_locally(n, match environment.buffers.get_arr(0) {
+            insert_at_identifier_locally(n, match environment.buffers.get_arr(0) {
                 Some(a) => CreateAny::ARR(*a),
                 None => return CreateResult::Err(CreateError { code: 3, message: "Named buffer was attempted to be set to null.".to_string() })
-            });
-            CreateResult::Ok()
+            }, environment.scope).into()
         },
         CONTROL(c) => {
             c.borrow_mut().run(environment, lossy)
@@ -671,10 +875,13 @@ pub fn run_directive_tokenless(directives: &mut Vec<CreateDirective>, environmen
             };
             write(environment, buf.into(), lossy)
         },
-        READ_NBF(n) => write(environment, match environment.scope.get(&n) {
-            Ok(v) => v.clone(),
-            Err(e) => return CreateResult::Err(e),
-        }, lossy),
+        READ_NBF(n) => {
+            let val = match resolve_identifier(&n, environment.scope) {
+                Ok(v) => v.clone(),
+                Err(e) => return CreateResult::Err(e),
+            };
+            write(environment, val, lossy)
+        },
         READ_IAR(n, mut m) => {
             let index = match m.eval_return(environment, lossy) {
                 Ok(Some(v)) => match *v {
@@ -684,23 +891,23 @@ pub fn run_directive_tokenless(directives: &mut Vec<CreateDirective>, environmen
                 Err(e) => return CreateResult::Err(e),
                 _ => return CreateResult::Err(CreateError { code: 3, message: "Index of array did not return buffer, and none was found.".to_string() }),
             };
-            let arr = match environment.scope.get(&n) {
+            let arr = match resolve_identifier(&n, environment.scope) {
                 Ok(CreateAny::ARR(a)) => a,
-                Ok(_) => return CreateResult::Err(CreateError { code: 3, message: format!("Identifier {} was not an array as expected.", n) }),
+                Ok(_) => return CreateResult::Err(CreateError { code: 3, message: format!("Identifier {:?} was not an array as expected.", n) }),
                 Err(e) => return CreateResult::Err(e),
             };
             let val = match arr.get(index as usize) {
                 Some(v) => v,
-                None => return CreateResult::Err(CreateError { code: 3, message: format!("Value at index {} in array {} was outside of the array", index, n) })
+                None => return CreateResult::Err(CreateError { code: 3, message: format!("Value at index {} in array {:?} was outside of the array", index, n) })
             }.clone();
             environment.buffers.pop();
             write(environment, val, lossy)
         },
         READ_LIA(n, mut m) => {
-            let mut arr = match environment.scope.get(&n) {
+            let mut arr = match resolve_identifier(&n, environment.scope) {
                 Ok(v) => match v {
                     CreateAny::ARR(a) => a.clone(),
-                    _ => return CreateResult::Err(CreateError { code: 3, message: format!("Identifier {} was not an array as expected", n) }),
+                    _ => return CreateResult::Err(CreateError { code: 3, message: format!("Identifier {:?} was not an array as expected", n) }),
                 },
                 Err(e) => return CreateResult::Err(e),
             };
@@ -743,6 +950,16 @@ pub fn run_directive_tokenless(directives: &mut Vec<CreateDirective>, environmen
             }
             write(environment, arr.into(), lossy)
         },
+        WRITE_FUN(f) => {
+            write(environment, f.into(), lossy)
+        },
+        WRITE_SCP(s) => {
+            let val = match s.construct(environment, lossy) {
+                Ok(p) => p,
+                Err(e) => return CreateResult::Err(e),
+            };
+            write(environment, val.into(), lossy)
+        },
         WRITE_INS(i) => {
             environment.writers.push_front(i);
             CreateResult::Ok()
@@ -756,30 +973,60 @@ pub fn run_directive_tokenless(directives: &mut Vec<CreateDirective>, environmen
                 CreateResult::Ok() => (),
                 CreateResult::Err(e) => return CreateResult::Err(e),
             }
-            environment.scope.insert(n, match environment.buffers.get_buf(0) {
+            insert_at_identifier(n, match environment.buffers.get_buf(0) {
                 Some(b) => CreateAny::BUF(*b),
                 None => return CreateResult::Err(CreateError { code: 3, message: "Named buffer was attempted to be set to null.".to_string() })
-            });
-            CreateResult::Ok()
+            }, environment.scope).into()
         },
         WRITE_NAR(n) => {
             let mut mutbuffer = match read_mutable_buffer_tokenless(directives) {
                 Ok(v) => v,
                 Err(e) => return CreateResult::Err(e),
             };
-            match mutbuffer.evaluate(environment, lossy) {
-                CreateResult::Ok() => (),
-                CreateResult::Err(e) => return CreateResult::Err(e),
-            }
-            environment.scope.insert(n, match environment.buffers.get_arr(0) {
-                Some(a) => CreateAny::ARR(*a),
-                None => return CreateResult::Err(CreateError { code: 3, message: "Named buffer was attempted to be set to null.".to_string() })
-            });
-            CreateResult::Ok()
+
+            let arr = match mutbuffer.eval_return(environment, lossy) {
+                Ok(Some(a)) => match *a {
+                    CreateAny::ARR(a) => a,
+                    _ => return CreateResult::Err(CreateError { code: 3, message: "Named array was attempted to be set to a non-array value".to_string() })
+                },
+                Ok(None) => return CreateResult::Err(CreateError { code: 3, message: "Named buffer was attempted to be set to null.".to_string() }),
+                Err(e) => return CreateResult::Err(e),
+            };
+
+            insert_at_identifier(n, CreateAny::ARR(arr), environment.scope).into()
         },
-        WRITE_NFN(n, f) => {
-            environment.scope.insert(n, CreateAny::FUN(f));
-            CreateResult::Ok()
+        WRITE_NSC(n) => {
+            let mut mutbuffer = match read_mutable_buffer_tokenless(directives) {
+                Ok(v) => v,
+                Err(e) => return CreateResult::Err(e),
+            };
+
+            let scope = match mutbuffer.eval_return(environment, lossy) {
+                Ok(Some(v)) => match *v {
+                    CreateAny::SCP(s) => s,
+                    _ => return CreateResult::Err(CreateError { code: 3, message: "Tried to set a named scope to a non-scope value".to_string() }),
+                },
+                Ok(None) => return CreateResult::Err(CreateError { code: 3, message: "Tried to set a named scope to a none value".to_string() }),
+                Err(e) => return CreateResult::Err(e),
+            };
+
+            insert_at_identifier(n, CreateAny::SCP(scope), environment.scope).into()
+        },
+        WRITE_NFN(n) => {
+            let mut mutbuffer = match read_mutable_buffer_tokenless(directives) {
+                Ok(v) => v,
+                Err(e) => return CreateResult::Err(e),
+            };
+            let function = match mutbuffer.eval_return(environment, lossy) {
+                Ok(Some(v)) => match *v {
+                    CreateAny::FUN(f) => f,
+                    _ => return CreateResult::Err(CreateError { code: 3, message: "Tried to set a named function to a non-function value".to_string() }),
+                },
+                Ok(None) => return CreateResult::Err(CreateError { code: 3, message: "Tried to set a named function to a none value".to_string() }),
+                Err(e) => return CreateResult::Err(e),
+            };
+
+            insert_at_identifier(n, CreateAny::FUN(function), environment.scope).into()
         },
         WRITE_GNB(n) => {
             let mut mutbuffer = match read_mutable_buffer_tokenless(directives) {
@@ -790,11 +1037,10 @@ pub fn run_directive_tokenless(directives: &mut Vec<CreateDirective>, environmen
                 CreateResult::Ok() => (),
                 CreateResult::Err(e) => return CreateResult::Err(e),
             }
-            environment.scope.insert_globally(n, match environment.buffers.get_buf(0) {
+            insert_at_identifier_globally(n, match environment.buffers.get_buf(0) {
                 Some(b) => CreateAny::BUF(*b),
                 None => return CreateResult::Err(CreateError { code: 3, message: "Named buffer was attempted to be set to null.".to_string() })
-            });
-            CreateResult::Ok()
+            }, environment.scope).into()
         },
         WRITE_GNA(n) => {
             let mut mutbuffer = match read_mutable_buffer_tokenless(directives) {
@@ -805,11 +1051,10 @@ pub fn run_directive_tokenless(directives: &mut Vec<CreateDirective>, environmen
                 CreateResult::Ok() => (),
                 CreateResult::Err(e) => return CreateResult::Err(e),
             }
-            environment.scope.insert_globally(n, match environment.buffers.get_arr(0) {
+            insert_at_identifier_globally(n, match environment.buffers.get_arr(0) {
                 Some(a) => CreateAny::ARR(*a),
                 None => return CreateResult::Err(CreateError { code: 3, message: "Named buffer was attempted to be set to null.".to_string() })
-            });
-            CreateResult::Ok()
+            }, environment.scope).into()
         },
         WRITE_LNB(n) => {
             let mut mutbuffer = match read_mutable_buffer_tokenless(directives) {
@@ -820,11 +1065,10 @@ pub fn run_directive_tokenless(directives: &mut Vec<CreateDirective>, environmen
                 CreateResult::Ok() => (),
                 CreateResult::Err(e) => return CreateResult::Err(e),
             }
-            environment.scope.insert_locally(n, match environment.buffers.get_buf(0) {
+            insert_at_identifier_locally(n, match environment.buffers.get_buf(0) {
                 Some(b) => CreateAny::BUF(*b),
                 None => return CreateResult::Err(CreateError { code: 3, message: "Named buffer was attempted to be set to null.".to_string() })
-            });
-            CreateResult::Ok()
+            }, environment.scope).into()
         },
         WRITE_LNA(n) => {
             let mut mutbuffer = match read_mutable_buffer_tokenless(directives) {
@@ -835,11 +1079,10 @@ pub fn run_directive_tokenless(directives: &mut Vec<CreateDirective>, environmen
                 CreateResult::Ok() => (),
                 CreateResult::Err(e) => return CreateResult::Err(e),
             }
-            environment.scope.insert_locally(n, match environment.buffers.get_arr(0) {
+            insert_at_identifier_locally(n, match environment.buffers.get_arr(0) {
                 Some(a) => CreateAny::ARR(*a),
                 None => return CreateResult::Err(CreateError { code: 3, message: "Named buffer was attempted to be set to null.".to_string() })
-            });
-            CreateResult::Ok()
+            }, environment.scope).into()
         },
         CONTROL(c) => {
             c.borrow_mut().run(environment, lossy)
@@ -915,27 +1158,13 @@ pub fn read_token(tokens: &mut Vec<Token>) -> Result<CreateDirective, CreateErro
                 IBF(i) => Ok(CreateDirective::READ_IBF(i)),
                 SNB(n) => Ok(CreateDirective::WRITE_NBF(n)),
                 SNA(n) => Ok(CreateDirective::WRITE_NAR(n)),
+                SNS(n) => Ok(CreateDirective::WRITE_NSC(n)),
                 SGB(n) => Ok(CreateDirective::WRITE_GNB(n)),
                 SGA(n) => Ok(CreateDirective::WRITE_GNA(n)),
                 SLA(n) => Ok(CreateDirective::WRITE_LNA(n)),
                 SLB(n) => Ok(CreateDirective::WRITE_LNB(n)),
                 GNB(n) => Ok(CreateDirective::READ_NBF(n)),
-                FUN(n) => {
-                    let mut params: Vec<(CreateType, String)> = Vec::new();
-                    if let Some(SPC(OPR())) = tokens.last() {tokens.pop();}
-                    else {return Err(CreateError { code: 2, message: "Function was attempted to be defined without argument set.".to_string() })}
-                    while let Some(token) = tokens.pop() {
-                        match token {
-                            SPC(CLR()) => break,
-                            SPC(SNB(n)) => params.push((CreateType::BUF, n)),
-                            SPC(SNA(n)) => params.push((CreateType::ARR, n)),
-                            SPC(FUN(n)) => params.push((CreateType::FUN, n)),
-                            _ => return Err(CreateError { code: 3, message: "Function arguments must be a form of setter".to_string() }),
-                        }
-                    }
-                    let fun = Function::new(params, read_mutable_buffer(tokens, None)?);
-                    Ok(CreateDirective::WRITE_NFN(n,fun))
-                },
+                SNF(n) => Ok(CreateDirective::WRITE_NFN(n)),
                 FNC(n) => {
                     let mut parambuffers: Vec<MutableBuffer> = Vec::new();
                     while let Some(token) = tokens.last() {
@@ -982,8 +1211,9 @@ pub fn read_token(tokens: &mut Vec<Token>) -> Result<CreateDirective, CreateErro
                         Ok(CreateDirective::READ_LIA(n, mutbuffers))
                     }
                 },
-                OPR() => return Err(CreateError { code: 2, message: "Unexpected ( in source".to_string() }),
-                CLR() => return Err(CreateError { code: 2, message: "Unexpected ) in source".to_string() }),
+                OPR() => Ok(CreateDirective::WRITE_FUN(read_function(tokens)?)),
+                CLR() => Err(CreateError { code: 2, message: "Unexpected ) in source".to_string() }),
+                PIP() => Ok(CreateDirective::WRITE_SCP(read_scope(tokens)?)),
             }
         },
         CFL(cfl) => {
@@ -1000,23 +1230,35 @@ pub fn read_token(tokens: &mut Vec<Token>) -> Result<CreateDirective, CreateErro
                     }
                 },
                 FOR => {
-                    let mut identifier: Option<String> = None;
+                    let mut identifier: Option<Identifier> = None;
                     if let Some(SPC(SNB(i))) = tokens.last() {
                         identifier = Some(i.clone());
                         tokens.pop();
                     }
                     let condition = read_mutable_buffer(tokens, None)?;
-                    let control = For::new(condition, identifier, read_mutable_buffer(tokens, None)?);
+                    let control = For::new(condition, match identifier {
+                        Some(mut v) => {
+                            if v.len() > 1 {return Err(CreateError { code: 3, message: "Function condition names can only be single layer".to_string() })}
+                            Some(v.pop().unwrap())
+                        },
+                        None => None,
+                    }, read_mutable_buffer(tokens, None)?);
                     Ok(CreateDirective::CONTROL(Rc::new(RefCell::new(control))))
                 },
                 FRN => {
-                    let mut identifier: Option<String> = None;
+                    let mut identifier: Option<Identifier> = None;
                     if let Some(SPC(SNB(i))) = tokens.last() {
                         identifier = Some(i.clone());
                         tokens.pop();
                     }
                     let array = read_mutable_buffer(tokens, None)?;
-                    let control = ForIn::new(array, identifier, read_mutable_buffer(tokens, None)?);
+                    let control = ForIn::new(array, match identifier {
+                        Some(mut v) => {
+                            if v.len() > 1 {return Err(CreateError { code: 3, message: "Function condition names can only be single layer".to_string() })}
+                            Some(v.pop().unwrap())
+                        },
+                        None => None,
+                    }, read_mutable_buffer(tokens, None)?);
                     Ok(CreateDirective::CONTROL(Rc::new(RefCell::new(control))))
                 },
                 WHL => {
@@ -1025,9 +1267,10 @@ pub fn read_token(tokens: &mut Vec<Token>) -> Result<CreateDirective, CreateErro
                 },
                 BRK => Ok(CreateDirective::BREAK()),
                 RTN => Ok(CreateDirective::RETURN()),
-                _ => Err(CreateError { code: 3, message: "Unexpected control flow token found.".to_string() }),
+                _ => Err(CreateError { code: 3, message: "Unexpected control flow token found".to_string() }),
             }
-        }
+        },
+        TYP(..) => Err(CreateError { code: 2, message: "Unexpected type statement found".to_string() }),
     }
 }
 
@@ -1042,21 +1285,23 @@ pub fn read_mutable_buffer(tokens: &mut Vec<Token>, capacity: Option<i32>) -> Re
         let current = read_token(tokens)?;
         mutbuffer.push(current);
         match mutbuffer.last().unwrap() {
-            READ_BUF()
-            | READ_IBF(_)
-            | READ_IAR(_,_)
-            | READ_NBF(_)
-            | WRITE_BUF(_)
-            | WRITE_ARR(_) => {
-                'rec: loop {
+            READ_BUF(..)
+            | READ_IBF(..)
+            | READ_IAR(..)
+            | READ_LIA(..)
+            | READ_NBF(..)
+            | WRITE_BUF(..)
+            | WRITE_ARR(..)
+            | WRITE_SCP(..) => {
+                'rec1: loop {
                     match capacity.last_mut() { 
                         Some(v) => {
                             *v -= 1;
                             if capacity.last().unwrap() <= &0 {
                                 capacity.pop();
-                                continue 'rec;
+                                continue 'rec1;
                             }
-                            break 'rec;
+                            break 'rec1;
                         },
                         None => break 'main,
                     };
@@ -1065,12 +1310,29 @@ pub fn read_mutable_buffer(tokens: &mut Vec<Token>, capacity: Option<i32>) -> Re
             WRITE_INS(i) => {
                 capacity.push(i.borrow().capacity()? as i32)
             },
-            WRITE_GNB(_)
-            | WRITE_GNA(_)
-            | WRITE_LNB(_)
-            | WRITE_LNA(_)
-            | WRITE_NBF(_) => {
+            WRITE_GNB(..)
+            | WRITE_GNA(..)
+            | WRITE_LNB(..)
+            | WRITE_LNA(..)
+            | WRITE_NBF(..)
+            | WRITE_NAR(..)
+            | WRITE_NSC(..) => {
                 capacity.push(1);
+            },
+            CONTROL(c) => {
+                'rec2: loop {
+                    match capacity.last_mut() { 
+                        Some(v) => {
+                            *v -= c.borrow().return_count() as i32;
+                            if capacity.last().unwrap() <= &0 {
+                                capacity.pop();
+                                continue 'rec2;
+                            }
+                            break 'rec2;
+                        },
+                        None => break 'main,
+                    };
+                }
             },
             _ => (),
         }
@@ -1080,7 +1342,7 @@ pub fn read_mutable_buffer(tokens: &mut Vec<Token>, capacity: Option<i32>) -> Re
     Ok(mutbuffer)
 }
 
-pub fn read_mutable_buffer_tokenless(directives: &mut Vec<CreateDirective>) -> Result<MutableBuffer, CreateError> {
+pub fn read_mutable_buffer_tokenless<'a>(directives: &mut Vec<CreateDirective>) -> Result<MutableBuffer, CreateError> {
     let mut mutbuffer = MutableBuffer::new();
     let mut capacity = Vec::new();
     'main: while let Some(directive) = directives.pop() {
@@ -1130,6 +1392,7 @@ pub fn interpret_program(data: Vec<Token>) -> CreateResult {
         buffers: &mut buffers, 
         scope: &mut scope,
     };
+
     while let Some(_) = program.last() {
         match write_token(&mut program, &mut environment) {
             CreateResult::Ok() => (),

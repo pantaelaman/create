@@ -20,6 +20,7 @@ impl std::fmt::Display for CreateError {
             10 => "Mistyped argument for function.",
             11 => "Unexpected break statement.",
             12 => "Unexpected return statement.",
+            13 => "Scope did not return value.",
             usize::MAX => "Something went wrong.",
             _ => "Huh, we weren't able to diagnose the issue, but there was an error somewhere in here.",
         };
@@ -37,6 +38,15 @@ impl std::convert::From<std::io::Error> for CreateError {
     fn from(err: std::io::Error) -> Self {
         let msg = err.to_string();
         CreateError {code: 1, message: msg}
+    }
+}
+
+impl<T> std::convert::From<Result<T, CreateError>> for CreateResult {
+    fn from(result: Result<T, CreateError>) -> CreateResult {
+        match result {
+            Ok(_) => CreateResult::Ok(),
+            Err(e) => CreateResult::Err(e),
+        }
     }
 }
 
