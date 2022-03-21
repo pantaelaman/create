@@ -89,11 +89,9 @@ pub fn tokenize(data: &str) -> Result<Vec<Token>, errors::CreateError> {
             use std::f32::consts::*;
             if &raw_token[0..1] == "\"" {
                 let mut chars = raw_token[1..].chars().peekable();
-                tokens.push(SPC(OPS()));
                 while let Some(_) = chars.peek() {
                     tokens.push(NUM(read_char(&mut chars)? as f32));
                 }
-                tokens.push(SPC(CLS()));
                 continue;
             }
             tokens.push(match raw_token {

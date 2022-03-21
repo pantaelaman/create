@@ -1,24 +1,8 @@
-=||obj |
-    =test 1
-    =tst 3
-    =[]arrtest [ 1 2 3 ]
-    =()subfunc ( =()p =v ) buf {
-        . ~p( ~v )
-    }
-    =||subscope |
-        =val 3
-    |
-|
-
-~obj.subfunc( 
-    ( =v ) buf ~v
-    6
-)
-
-=[]str "abc
-
-forin =char ~str {
-    , ~char
+=()print ( =[]str ) non {
+    forin =char ~str {
+        , ~char ;
+    } ;
 }
 
-, '\n
+=[]string [ "Hello,\sWorld!\n ]
+~print( ~string )
